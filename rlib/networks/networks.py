@@ -179,13 +179,13 @@ def nature_reservoir(input, conv1_size=32 ,conv2_size=64, conv3_size=64, dense_s
     dense = mlp_layer(fc, dense_size, activation=tf.nn.relu, trainable=False)
     return dense
 
-def nature_cnn(input, conv1_size=32 ,conv2_size=64, conv3_size=64, dense_size=512, padding='VALID'):
+def nature_cnn(input, conv1_size=32 ,conv2_size=64, conv3_size=64, dense_size=512, padding='VALID', activation=tf.nn.relu):
     x = input/255
-    h1 = conv2d(x,  output_channels=conv1_size, kernel_size=[8,8],  strides=[4,4], padding=padding, activation=tf.nn.relu, dtype=tf.float32, name='conv_1')
-    h2 = conv2d(h1, output_channels=conv2_size, kernel_size=[4,4],  strides=[2,2], padding=padding, activation=tf.nn.relu, dtype=tf.float32, name='conv_2')
-    h3 = conv2d(h2, output_channels=conv3_size, kernel_size=[3,3],  strides=[1,1], padding=padding, activation=tf.nn.relu, dtype=tf.float32, name='conv_3')
+    h1 = conv2d(x,  output_channels=conv1_size, kernel_size=[8,8],  strides=[4,4], padding=padding, activation=activation, dtype=tf.float32, name='conv_1')
+    h2 = conv2d(h1, output_channels=conv2_size, kernel_size=[4,4],  strides=[2,2], padding=padding, activation=activation, dtype=tf.float32, name='conv_2')
+    h3 = conv2d(h2, output_channels=conv3_size, kernel_size=[3,3],  strides=[1,1], padding=padding, activation=activation, dtype=tf.float32, name='conv_3')
     fc = flatten(h3)
-    dense = mlp_layer(fc, dense_size, activation=tf.nn.relu)
+    dense = mlp_layer(fc, dense_size, activation=activation)
     return dense
 
 def mlp(x, num_layers=2, dense_size=64, activation=tf.nn.relu, weight_initialiser=tf.glorot_uniform_initializer, bias_initialiser=tf.zeros_initializer):
