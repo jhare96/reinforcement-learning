@@ -4,10 +4,10 @@ import scipy
 import gym
 import os, time
 import threading
-from A2C import ActorCritic
-from networks.networks import*
-from utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
-from utils.VecEnv import*
+from rlib.A2C.A2C import ActorCritic
+from rlib.networks.networks import*
+from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.utils.VecEnv import*
 #from .OneNetCuriosity import Curiosity_onenet
 
 def one_hot(x, num_classes):

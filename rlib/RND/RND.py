@@ -6,9 +6,9 @@ import os, time
 import threading
 from networks import*
 from utils import one_hot, fold_batch
-from SyncMultiEnvTrainer import SyncMultiEnvTrainer
-from VecEnv import*
-from Curiosity import ICM
+from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.utils.VecEnv import*
+from rlib.Curiosity.Curiosity import ICM
 
 class ActorCritic_LSTM(object):
     def __init__(self, model_head, input_shape, action_size, num_envs, cell_size,

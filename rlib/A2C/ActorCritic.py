@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from networks.networks import mlp_layer, lstm, lstm_masked
+from rlib.networks.networks import mlp_layer, lstm, lstm_masked
 
 
 class ActorCritic_LSTM(object):

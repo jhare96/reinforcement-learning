@@ -7,13 +7,10 @@ import queue
 import sys
 import argparse
 
-from os import path
-sys.path.append( path.dirname( path.dirname( path.abspath(__file__) ) ) )
-
 
 from A2C import ActorCritic
-from VecEnv import*
-from networks import*
+from rlib.utils.VecEnv import*
+from rlib.networks.networks import*
 
 
 class Actor(ActorCritic):

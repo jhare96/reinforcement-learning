@@ -4,11 +4,12 @@ import scipy
 import tensorflow as tf
 import multiprocessing, threading
 from collections import deque
-from networks.networks import*
-from utils.VecEnv import*
-from SyncMultiEnvTrainer import SyncMultiEnvTrainer
 import time, datetime, os
 import copy
+
+from rlib.networks.networks import*
+from rlib.utils.VecEnv import*
+from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 
 
 

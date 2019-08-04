@@ -5,11 +5,11 @@ import gym
 import os, time
 import threading
 from rlib.utils.utils import one_hot, fold_batch
-from A2C.ActorCritic import ActorCritic_LSTM
-from networks.networks import*
+from rlib.A2C.ActorCritic import ActorCritic_LSTM
+from rlib.networks.networks import*
 
-from utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
-from utils.VecEnv import*
+from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.utils.VecEnv import*
 from Curiosity import ICM
 
 
@@ -105,7 +105,7 @@ class Curiosity_LSTM_Trainer(SyncMultiEnvTrainer):
             R = self.multistep_target(rewards, values, dones, clip=False)  
                 
             # stack all states, next_states, actions and Rs across all workers into a single batch
-            states, next_states, actions, R = fold_batch(states),fold_batch(next_states), fold_batch(actions), fold_batch(R)
+            states, next_states, actions, R = fold_batch(states), fold_batch(next_states), fold_batch(actions), fold_batch(R)
             l = self.model.backprop(states, next_states, R, actions, hidden_batch[0], dones)
 
             if self.render_freq > 0 and t % (self.validate_freq * self.render_freq) == 0:
@@ -242,7 +242,7 @@ def main(env_id):
                       lr=1e-3,
                       lr_final=1e-3,
                       decay_steps=50e6//(num_envs*nsteps),
-                      grad_clip=0.5,
+                      grad_clip=20.0,
                       policy_args={},
                       ICM_args={})
 
@@ -275,9 +275,9 @@ def main(env_id):
 
     tf.reset_default_graph()
 
-# if __name__ == "__main__":
-#     env_id_list = ['FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'VentureDeterministic-v4', 'SpaceInvadersDeterministic-v4',]
-#     #env_id_list = ['MountainCar-v0', 'Acrobot-v1']
-#     #env_id_list = ['SuperMarioBros-1-1-v0']
-#     for env_id in env_id_list:
-#         main(env_id)
+if __name__ == "__main__":
+    env_id_list = ['FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'VentureDeterministic-v4', 'SpaceInvadersDeterministic-v4',]
+    #env_id_list = ['MountainCar-v0', 'Acrobot-v1']
+    #env_id_list = ['SuperMarioBros-1-1-v0']
+    for env_id in env_id_list:
+        main(env_id)

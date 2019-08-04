@@ -4,12 +4,9 @@ import threading, multiprocessing
 import queue
 import gym
 import sys
-from os import path
-sys.path.append( path.dirname( path.dirname( path.abspath(__file__) ) ) )
 
-from ActorCritic import ActorCritic_LSTM
-from VecEnv import*
-from networks import*
+from rlib.utils.VecEnv import*
+from rlib.networks.networks import*
 
 main_lock = threading.Lock()
 

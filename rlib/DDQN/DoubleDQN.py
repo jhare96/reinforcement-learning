@@ -9,10 +9,11 @@ import time
 #from gym_super_mario_bros.actions import COMPLEX_MOVEMENT
 #import multiprocessing as mp
 #import resource
-from VecEnv import *
 import sys, os, datetime
 from collections import deque
-from ReplayMemory import replayMemory, FrameBuffer, NumpyReplayMemory
+
+from rlib.utils.VecEnv import *
+from rlib.ReplayMemory import replayMemory, FrameBuffer, NumpyReplayMemory
 from Qvalue import Qvalue, MLP
 #os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 #os.environ["TF_CUDNN_USE_AUTOTUNE"] = "0"
