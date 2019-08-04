@@ -4,7 +4,7 @@ import threading
 import numpy as np
 import copy
 from abc import ABC, abstractmethod
-from utils import fold_batch
+from .utils import fold_batch
 
 
 

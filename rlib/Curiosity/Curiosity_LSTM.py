@@ -4,11 +4,12 @@ import scipy
 import gym
 import os, time
 import threading
-from ActorCritic import ActorCritic_LSTM
-from networks import*
-from utils import one_hot, fold_batch
-from SyncMultiEnvTrainer import SyncMultiEnvTrainer
-from VecEnv import*
+from rlib.utils.utils import one_hot, fold_batch
+from A2C.ActorCritic import ActorCritic_LSTM
+from networks.networks import*
+
+from utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from utils.VecEnv import*
 from Curiosity import ICM
 
 
@@ -274,9 +275,9 @@ def main(env_id):
 
     tf.reset_default_graph()
 
-if __name__ == "__main__":
-    env_id_list = ['FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'VentureDeterministic-v4', 'SpaceInvadersDeterministic-v4',]
-    #env_id_list = ['MountainCar-v0', 'Acrobot-v1']
-    #env_id_list = ['SuperMarioBros-1-1-v0']
-    for env_id in env_id_list:
-        main(env_id)
+# if __name__ == "__main__":
+#     env_id_list = ['FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'VentureDeterministic-v4', 'SpaceInvadersDeterministic-v4',]
+#     #env_id_list = ['MountainCar-v0', 'Acrobot-v1']
+#     #env_id_list = ['SuperMarioBros-1-1-v0']
+#     for env_id in env_id_list:
+#         main(env_id)
