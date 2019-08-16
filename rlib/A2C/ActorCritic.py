@@ -75,7 +75,7 @@ class ActorCritic_LSTM(object):
 
     def backprop(self, state, y, a, hidden, dones):
         feed_dict = {self.state : state, self.R : R, self.actions: a, self.hidden_in[0]:hidden[0], self.hidden_in[1]:hidden[1], self.mask:dones}
-        *_,l = self.sess.run([self.train_op, self.loss], )
+        *_,l = self.sess.run([self.train_op, self.loss], feed_dict=feed_dict)
         return l
     
     def set_session(self, sess):

@@ -101,15 +101,15 @@ class A2C(SyncMultiEnvTrainer):
             super().__init__(model,env,num_steps)
         
         def run(self,):
-            memory = []
+            rollout = []
             for t in range(self.num_steps):
                 policies, values = self.model.forward(self.states)
                 actions = [np.random.choice(policies.shape[1], p=policies[i]) for i in range(policies.shape[0])]
                 next_states, rewards, dones, infos = self.env.step(actions)
-                memory.append((self.states, actions, rewards, dones, infos))
+                rollout.append((self.states, actions, rewards, dones, infos))
                 self.states = next_states
             
-            states, actions, rewards, dones, infos = zip(*memory)
+            states, actions, rewards, dones, infos = zip(*rollout)
             states, actions, rewards, dones = np.stack(states), np.stack(actions), np.stack(rewards), np.stack(dones)
             return states, actions, rewards, dones, infos, values
     
@@ -239,7 +239,7 @@ def main(env_id):
     tf.reset_default_graph()
 
 if __name__ == "__main__":
-    env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
+    env_id_list = ['FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
     #env_id_list = ['CartPole-v1', 'MountainCar-v0', 'Acrobot-v1']
     #for i in range(4):
     for env_id in env_id_list:
