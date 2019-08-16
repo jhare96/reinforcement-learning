@@ -85,6 +85,22 @@ class AtariRescaleEnv(gym.Wrapper):
         obs = self.env.reset(**kwargs)
         return self.preprocess(obs)
 
+class AtariRescaleColour(gym.Wrapper):
+    def __init__(self, env):
+        gym.Wrapper.__init__(self, env)
+    
+    def preprocess(self,frame):
+        frame = np.array(Image.fromarray(frame).resize([84,110]))[110-84:,0:84,:]
+        return frame
+
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        return self.preprocess(obs), reward, done, info
+    
+    def reset(self, **kwargs):
+        obs = self.env.reset(**kwargs)
+        return self.preprocess(obs)
+
 
 class DummyEnv(gym.Wrapper):
     def __init__(self, env):
@@ -173,7 +189,26 @@ class EpisodicLifeEnv(gym.Wrapper):
             obs = self.env.reset(**kwargs)
         else:
             obs, _, _, _ = self.env.step(0)
-        return obs 
+        return obs
+
+class TimeLimitEnv(gym.Wrapper):
+    def __init__(self, env, time_limit):
+        gym.Wrapper.__init__(self,env)
+        self._time_limit=time_limit
+        self._step = 0
+    
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        self._step += 1
+        if self._step > self._time_limit:
+            done = True
+        return obs, reward, done, info
+    
+    def reset(self, **kwargs):
+        self._step = 0
+        return self.env.reset(**kwargs)
+
+
 
 class StackEnv(gym.Wrapper):
     def __init__(self, env, k=4):
@@ -255,7 +290,7 @@ class StackEnv(gym.Wrapper):
 #             self._stacked_frames.append(frame)
 #         return np.stack(self._stacked_frames,axis=2)
 
-def AtariEnv(env, k=4, rescale=84, episodic=True, reset=True, clip_reward=True, Noop=True):
+def AtariEnv(env, k=4, rescale=84, episodic=True, reset=True, clip_reward=True, Noop=True, time_limit=None):
     # Wrapper function for Determinsitic Atari env 
     # assert 'Deterministic' in env.spec.id
     if reset:
@@ -282,6 +317,10 @@ def AtariEnv(env, k=4, rescale=84, episodic=True, reset=True, clip_reward=True, 
 
     if k > 1:
         env = StackEnv(env,k)
+    
+    if time_limit is not None:
+        env = TimeLimitEnv(env, time_limit)
+
     return env
 
 class Env(object):
@@ -509,199 +548,19 @@ class ChunkWorker(mp.Process):
                 self.connection.send((1))
                 break
 
-def preprocess(frame):
-    frame = np.array(Image.fromarray(frame).resize([110,84,3]))[110-84:,0:84,:]
-    #frame = skimage.transform.resize(frame, [110,84,3])[110-84:,0:84,:]
-    #frame = np.dot(frame[...,:3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
-    return frame
 
-def batch_preproc(frames):
-    out = np.empty((frames.shape[0],84,84,3))
-    for i in range(frames.shape[0]):
-        out[i] = skimage.transform.resize(frames[i], [110,84,3])[110-84:,0:84,:]
-    return out
-
-def thread_run(env,Q,num_steps=1000,render=False):
-    obs = env.reset()
-    avg_time = 0
-    for i in range(num_steps):
-        action = np.argmax(AC.forward(sess,preprocess(obs))[0])
-        start = time.time()
-        obs, rew, done, info = env.step(action,False)()
-        #print("obs shape", obs.shape)
-        
-        avg_time += time.time()-start
-        if render:
-            with main_lock:
-                env.render()
-        if done:
-            obs = env.reset()
-    #print("step time", avg_time/num_steps)
-
-def thread_run2(env,Q,num_steps=1000,render=False):
-    obs = env.reset()
-    avg_time = 0
-    for i in range(num_steps):
-        action = np.argmax(Q.forward(sess,preprocess(obs)))
-        start = time.time()
-        obs, rew, done, info = env.step(action)
-        #print("obs shape", obs.shape)
-        
-        avg_time += time.time()-start
-        if render:
-            with main_lock:
-                env.render()
-        if done:
-            obs = env.reset()
-
-main_lock = threading.Lock()
 
 if __name__ == "__main__":
-    # wrappers = [EpisodicLifeEnv, StackEnv]
-    # env = StackEnv(EpisodicLifeEnv( gym.make('SpaceInvaders-v0')))
-    # env = Env(env)
-    # #env = StackEnv(EpisodicLifeEnv(gym.make('SpaceInvadersDeterministic-v0')),10)
-    # env.reset()
-    # #print("env obs space", env.observation_space)
-    # for t in range(10000):
-    #     action = env.action_space.sample()
-    #     obs, reward, done, info = env.step(action)
-    #     if t % 20 ==0:
-    #         print('time:', t, 'obs shape', obs.shape)
-    #         for i in range(obs.shape[-1]):
-    #             scipy.misc.imshow(obs[:,:,i])
-    #     if done:
-    #         env.reset()
-    #     #env.render()
-    
-    # env.close()
-    # #time.sleep(10)
-    # exit()
-    env = gym.make('Breakout-v0')
-    env = AtariRescale42x42(env)
-    print('env shape', env.reset().shape)
-    scipy.misc.imshow(env.reset()[:,:,0])
-    exit()
-    ac_cnn_args = {'input_size':[84,84,4], 'action_size':6,  'lr':1e-3, 'grad_clip':0.5, 'decay_steps':50e6/(32*5),
-                    'conv1_size':32, 'conv2_size':64, 'conv3_size':64, 'dense_size':512}
-    #Q = Qvalue(84,4,32,64,64,256,6,'Q')
-    AC = ActorCritic(Nature_CNN, **ac_cnn_args)
-    config = tf.ConfigProto() #GPU 
-    config.gpu_options.allow_growth=True #GPU
-    #config = tf.ConfigProto(device_count = {'GPU': 0}) #CPU ONLY
-    sess = tf.Session(config=config)
-    init = tf.global_variables_initializer()
-    sess.run(init)
-    env_id = 'SpaceInvaders-v0'
-    print("cpu count:", mp.cpu_count())
-    num_workers_  = [2]
-    thread_envwrapper, thread_env, chunkenv, batchenv, single_thread = [],[],[],[],[]
-    for num_workers in num_workers_:
-        # envs = [ENV('Breakout-v0') for i in range(num_workers)]
-        # start = time.time()
-        # for ep in range(5):
-        #     threads = [threading.Thread(target=thread_run2, args=(envs[i],Q,)) for i in range(num_workers)]
-            
-        #     for thread in threads:
-        #         thread.start()
-        
-        #     for thread in threads:
-        #         thread.join()
-        
-        # time_taken = time.time() - start
-        # thread_envwrapper.append(time_taken)
-        # print(num_workers,' threading with env wrapper time taken ', time_taken )
-        # for env in envs:
-        #     env.close()
-
-        # envs = [gym.make('Breakout-v0') for i in range(num_workers)]
-        # start = time.time()
-        # for ep in range(5):
-        #     threads = [threading.Thread(target=thread_run2, args=(envs[i],Q,)) for i in range(num_workers)]
-            
-        #     for thread in threads:
-        #         thread.start()
-        
-        #     for thread in threads:
-        #         thread.join()
-
-        # time_taken = time.time() - start
-        # thread_env.append(time_taken)
-        # print(num_workers,' threading time taken ', time_taken)
-
-
-        # env = ChunkEnv('Breakout-v0',num_workers//2,2)
-        # start = time.time()
-        # o = env.reset()
-        # for i in range(5000):
-        #     actions = np.argmax(Q.forward(sess,batch_preproc(o)),axis=1)
-        #     o,r,d,i = env.step(actions)
-            
-        # time_taken = time.time() - start
-        # chunkenv.append(time_taken)
-        # print(num_workers,' multiprocessing BhunkEnv time taken ', time_taken)
-        # env.close()
-
-        # env = Env(AtariEnv(gym.make('SpaceInvaders-v0')))
-        # start = time.time()
-        # o = env.reset()
-        # for i in range(5000):
-        #     actions = np.argmax(AC.forward(sess,o[np.newaxis])[0],axis=1)
-        #     o,r,d,i = env.step(actions)
-        #     #print("batch rewards", r)
-            
-        # time_taken = time.time() - start
-        # fps = 5000 / time_taken
-        # print(' %i Env time taken %f, fps %f' %(1,time_taken,fps))
-        # env.close()
-    
-
-        #env = BatchEnv(StackedEnv,num_workers,False,env_id=env_id,k=4)
-        # envs = [Env(AtariEnv('SpaceInvaders-v0',num_stack=4)) for i in range(num_workers)]
-        env = BatchEnv(AtariValidate, 'SpaceInvaders-v0', num_workers, True)
-        #del envs[:]
-        start = time.time()
-        o = env.reset()
-        for i in range(5000):
-            actions = np.argmax(AC.forward(sess,o)[0],axis=1)
-            o,r,d,info = env.step(actions)
-            print('rewards', r)
-            print('o shape', o.shape)
-            for action in actions:
-                print('action', action)
-            if i % 10 == 0:
-                for j in range(o.shape[0]):
-                    print('next state')
-                    for i in range(4):
-                        scipy.misc.imshow(o[j,:,:,i])
-            # if i % 100 == 0:
-            #     print(i,"new obs", o.shape)
-            #     for j in range(len(o)):
-            #         scipy.misc.imshow(o[0,:,:,j])
-            
-        time_taken = time.time() - start
-        fps = 5000 * num_workers / time_taken
-        print(' %i multiprocessing stackedBatchEnv time taken %f, fps %f' %(num_workers,time_taken,fps))
-        env.close()
-
-        # env2 = gym.make('SpaceInvaders-v0')
-        # o = env2.reset()
-        # start = time.time()
-        # for i in range(5000*num_workers):
-        #     action = np.argmax(Q.forward(sess,preprocess(o)))
-        #     o,r,d,i = env2.step(action)
-        #     #env2.render()
-        #     if d:
-        #         env2.reset()
-        # time_taken = time.time() - start
-        # single_thread.append(time_taken)
-        # print(num_workers,' single thread time taken ', time_taken)
-    
-    plt.plot(num_workers_, thread_envwrapper, label='thread_env_wrapped')
-    plt.plot(num_workers_, thread_env, label='thread_env')
-    plt.plot(num_workers_, chunkenv,label='chunkenv')
-    plt.plot(num_workers_, batchenv, label='batchenv')
-    plt.plot(num_workers_, single_thread, label='single_thread_env')
-    plt.show()
+    env_id = 'MontezumaRevenge-v4'
+    env = AtariEnv(gym.make(env_id), k=4, time_limit=4500, episodic=True)
+    obs = env.reset()
+    for i in range(4700):
+        action = env.action_space.sample()
+        obs, reward, done, info  = env.step(0)
+        if done:
+            print(i)
+            scipy.misc.imshow(obs[:,:,-1])
+            env.reset()
+            #plt.show()
 
     
