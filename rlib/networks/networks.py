@@ -33,6 +33,19 @@ def conv2d(input, output_channels, kernel_size, strides, padding, activation=tf.
             h = activation(h)
     return h
 
+def conv2d_transpose(input, output_shape, kernel_size, strides, padding, activation=tf.nn.relu, name='conv2d_transpose', dtype=tf.float32, kernel_initialiser=tf.glorot_uniform_initializer, bias_initialiser=tf.zeros_initializer, trainable=True):
+    with tf.variable_scope(name):
+        input_channels = input.get_shape().as_list()[-1]
+        output_channels = output_shape[-1]
+        stride_shape = [1, *strides, 1]
+        w = tf.get_variable(name=name+'_kernel', shape=[*kernel_size, output_channels, input_channels], dtype=dtype, initializer=kernel_initialiser, trainable=trainable)
+        b = tf.get_variable(name=name+'_bias', shape=[output_channels], dtype=dtype, initializer=bias_initialiser, trainable=trainable)
+        h = tf.nn.conv2d_transpose(input, w , output_shape, stride_shape, padding) + b 
+        if activation is not None:
+            h = activation(h)
+    return h
+
+
 
 def conv_transpose_layer(input, output_shape, kernel_size, strides, padding, activation=tf.nn.relu, name='conv_transpose_layer', dtype=tf.float32, kernel_initialiser=tf.glorot_uniform_initializer, bias_initialiser=tf.zeros_initializer, trainable=True):
     with tf.variable_scope(name):
@@ -41,7 +54,7 @@ def conv_transpose_layer(input, output_shape, kernel_size, strides, padding, act
         stride_shape = [1, *strides, 1]
         w = tf.get_variable(name=name+'_kernel', shape=[*kernel_size, output_channels, input_channels], dtype=dtype, initializer=kernel_initialiser, trainable=trainable)
         b = tf.get_variable(name=name+'_bias', shape=[output_channels], dtype=dtype, initializer=bias_initialiser, trainable=trainable)
-        h = tf.nn.conv_transpose(input,w,output_shape,strides,padding)
+        h = tf.nn.conv_transpose(input,w,output_shape,strides,padding) + b 
         if activation is not None:
             h = activation(h)
     return h
@@ -122,7 +135,7 @@ def dynamic_masked_rnn(cell, X, hidden_init, mask, parallel_iterations=32, swap_
             swap_memory - 
             time_major - bool flag to determine order of indices of input tensor 
             scope - tf variable_scope of dynamic RNN loop
-            trainable - bool flag whether to perform backpropagation of RNN
+            trainable - bool flag whether to perform backpropagation to RNN cell
     '''
     with tf.variable_scope(scope):
 
@@ -153,12 +166,12 @@ def dynamic_masked_rnn(cell, X, hidden_init, mask, parallel_iterations=32, swap_
         
     return output, hidden
 
-def universe_cnn(input, conv_size=32):
+def universe_cnn(input, conv_size=32, trainable=True):
     x = input / 255
-    h1 = conv2d(x, conv_size, [3,3], [2,2], padding='SAME', name='conv_1', activation=tf.nn.elu)
-    h2 = conv2d(h1, conv_size, [3,3], [2,2], padding='SAME', name='conv_2', activation=tf.nn.elu)
-    h3 = conv2d(h2, conv_size, [3,3], [2,2], padding='SAME', name='conv_3', activation=tf.nn.elu)
-    h4 = conv2d(h3, conv_size, [3,3], [2,2], padding='SAME', name='conv_4', activation=tf.nn.elu)
+    h1 = conv2d(x , conv_size, [3,3], [2,2], padding='SAME', name='conv_1', activation=tf.nn.elu, trainable=trainable)
+    h2 = conv2d(h1, conv_size, [3,3], [2,2], padding='SAME', name='conv_2', activation=tf.nn.elu, trainable=trainable)
+    h3 = conv2d(h2, conv_size, [3,3], [2,2], padding='SAME', name='conv_3', activation=tf.nn.elu, trainable=trainable)
+    h4 = conv2d(h3, conv_size, [3,3], [2,2], padding='SAME', name='conv_4', activation=tf.nn.elu, trainable=trainable)
     fc = flatten(h4)
     return fc
 
@@ -170,27 +183,18 @@ def nips_cnn(input, conv1_size=16 ,conv2_size=21, dense_size=256, padding='VALID
     dense = mlp_layer(fc, dense_size, activation=tf.nn.relu)
     return dense
 
-def nature_reservoir(input, conv1_size=32 ,conv2_size=64, conv3_size=64, dense_size=512, padding='VALID'):
-    x = input/255
-    h1 = conv2d(x,  output_channels=conv1_size, kernel_size=[8,8],  strides=[4,4], padding=padding, activation=tf.nn.relu, dtype=tf.float32, name='conv_1', trainable=False)
-    h2 = conv2d(h1, output_channels=conv2_size, kernel_size=[4,4],  strides=[2,2], padding=padding, activation=tf.nn.relu, dtype=tf.float32, name='conv_2', trainable=False)
-    h3 = conv2d(h2, output_channels=conv3_size, kernel_size=[3,3],  strides=[1,1], padding=padding, activation=tf.nn.relu, dtype=tf.float32, name='conv_3', trainable=False)
+def nature_cnn(input, conv1_size=32 ,conv2_size=64, conv3_size=64, dense_size=512, padding='VALID', activation=tf.nn.relu, scale=True, trainable=True):
+    x = input/255 if scale else input
+    h1 = conv2d(x,  output_channels=conv1_size, kernel_size=[8,8],  strides=[4,4], padding=padding, activation=activation, dtype=tf.float32, name='conv_1', trainable=trainable)
+    h2 = conv2d(h1, output_channels=conv2_size, kernel_size=[4,4],  strides=[2,2], padding=padding, activation=activation, dtype=tf.float32, name='conv_2', trainable=trainable)
+    h3 = conv2d(h2, output_channels=conv3_size, kernel_size=[3,3],  strides=[1,1], padding=padding, activation=activation, dtype=tf.float32, name='conv_3', trainable=trainable)
     fc = flatten(h3)
-    dense = mlp_layer(fc, dense_size, activation=tf.nn.relu, trainable=False)
+    dense = mlp_layer(fc, dense_size, activation=activation, trainable=trainable)
     return dense
 
-def nature_cnn(input, conv1_size=32 ,conv2_size=64, conv3_size=64, dense_size=512, padding='VALID', activation=tf.nn.relu):
-    x = input/255
-    h1 = conv2d(x,  output_channels=conv1_size, kernel_size=[8,8],  strides=[4,4], padding=padding, activation=activation, dtype=tf.float32, name='conv_1')
-    h2 = conv2d(h1, output_channels=conv2_size, kernel_size=[4,4],  strides=[2,2], padding=padding, activation=activation, dtype=tf.float32, name='conv_2')
-    h3 = conv2d(h2, output_channels=conv3_size, kernel_size=[3,3],  strides=[1,1], padding=padding, activation=activation, dtype=tf.float32, name='conv_3')
-    fc = flatten(h3)
-    dense = mlp_layer(fc, dense_size, activation=activation)
-    return dense
-
-def mlp(x, num_layers=2, dense_size=64, activation=tf.nn.relu, weight_initialiser=tf.glorot_uniform_initializer, bias_initialiser=tf.zeros_initializer):
+def mlp(x, num_layers=2, dense_size=64, activation=tf.nn.relu, weight_initialiser=tf.glorot_uniform_initializer, bias_initialiser=tf.zeros_initializer, trainable=True):
     for i in range(num_layers):
-        x = mlp_layer(x, dense_size, activation=activation, weight_initialiser=weight_initialiser, bias_initialiser=bias_initialiser, name='dense_' + str(i))
+        x = mlp_layer(x, dense_size, activation=activation, weight_initialiser=weight_initialiser, bias_initialiser=bias_initialiser, name='dense_' + str(i), trainable=trainable)
     return x
 
 def lstm(input, cell_size=256, fold_output=True, time_major=True):
@@ -199,7 +203,6 @@ def lstm(input, cell_size=256, fold_output=True, time_major=True):
     hidden_tuple = (cell_in, hidden_in)
     
     lstm_cell = tf.compat.v1.nn.rnn_cell.LSTMCell(cell_size, state_is_tuple=True)
-    #lstm_cell = LSTMCell(cell_size, trainable=False)
     state_in = tf.compat.v1.nn.rnn_cell.LSTMStateTuple(cell_in, hidden_in)
 
     lstm_output, hidden_out = tf.compat.v1.nn.dynamic_rnn(lstm_cell, input, initial_state=state_in, time_major=time_major)
