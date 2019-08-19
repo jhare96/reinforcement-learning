@@ -9,7 +9,7 @@ from rlib.utils.utils import fold_batch
 
 
 class SyncMultiEnvTrainer(object):
-    def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', total_steps=10000, nsteps=5, gamma=0.99, lambda_=0.99, 
+    def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', total_steps=10000, nsteps=5, gamma=0.99, lambda_=0.95, 
                      validate_freq=1e6, save_freq=0, render_freq=0, update_target_freq = 10000, num_val_episodes=50,
                      log_scalars=True):
         '''
@@ -17,7 +17,7 @@ class SyncMultiEnvTrainer(object):
 
             Args:
                 envs - BatchEnv method which runs multiple environements synchronously 
-                model - Pure tf or tf.Keras reinforcement learning model 
+                model - reinforcement learning model
                 file_loc - as list of strings for saving model and tensorboard results in order of [model_directory, train_log_dir]
                 val_envs - a list of envs for validation 
                 train_mode - 'nstep' or 'onestep' species whether training is done using multiple step TD learning or single step 
@@ -172,7 +172,7 @@ class SyncMultiEnvTrainer(object):
         T = len(rewards)
         for t in reversed(range(T-1)):
             delta = rewards[t] + gamma * values[t+1] * (1-dones[t]) - values[t]
-            Adv[t] = delta + gamma*lambda_ * Adv[t+1] * (1-dones[t])
+            Adv[t] = delta + gamma * lambda_ * Adv[t+1] * (1-dones[t])
         
         return Adv
     
@@ -184,7 +184,9 @@ class SyncMultiEnvTrainer(object):
         num_val_envs = len(self.val_envs)
         num_val_eps = [self.num_val_episodes//num_val_envs for i in range(num_val_envs)]
         num_val_eps[-1] = num_val_eps[-1] + self.num_val_episodes % self.num_val_episodes//(num_val_envs)
-        threads = [threading.Thread(daemon=True,target=self.validate, args=(self.val_envs[i], num_val_eps[i], 10000, render)) for i in range(num_val_envs)]
+        render_array = np.zeros((len(self.val_envs)))
+        render_array[0] = render
+        threads = [threading.Thread(daemon=True,target=self.validate, args=(self.val_envs[i], num_val_eps[i], 10000, render_array[i])) for i in range(num_val_envs)]
         
         try:
             for thread in threads:
