@@ -19,10 +19,16 @@ from collections import deque
 #import line_profiler
 #profile = line_profiler.LineProfiler()
 
-def MarioEnv(env):
-    #env = gym_super_mario_bros.make(env_id)
-    env = RescaleEnv(env, 84)
+def MarioEnv(env, rescale=84, k=4, clip_reward=True, no_reward=False):
     env = BinarySpaceToDiscreteSpaceEnv(env, COMPLEX_MOVEMENT)
+    if clip_reward:
+        env = ClipRewardEnv(env)
+    if no_reward:
+        env = NoRewardEnv(env)
+    if rescale is not None:
+        env = RescaleEnv(env, rescale)
+    if k > 1:
+        env = StackEnv(env, k)
     return env 
 
 def AtariValidate(env):
