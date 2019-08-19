@@ -9,7 +9,6 @@ from rlib.networks.networks import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.VecEnv import*
 from rlib.utils.utils import fold_batch, one_hot, rolling_stats, stack_many
-from rlib import PPO
 
 os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 
@@ -19,9 +18,39 @@ class rolling_obs(object):
     
     def update(self, x):
         if len(x.shape) == 5: # assume image obs 
-            return self.rolling.update(np.mean(x[:,:,:,:,-1], axis=(0,1))) #[time,batch,height,width,stack] -> [height, width]
+            return self.rolling.update(np.mean(x[...,-1:], axis=(0,1))) #[time,batch,height,width,stack] -> [height, width]
         else:
             return self.rolling.update(np.mean(x, axis=(0,1))) #[time,batch,*shape] -> [*shape]
+
+
+class RunningMeanStd(object):
+    # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
+    def __init__(self, epsilon=1e-4, shape=()):
+        self.mean = np.zeros(shape, 'float64')
+        self.var = np.ones(shape, 'float64')
+        self.count = epsilon
+
+    def update(self, x):
+        batch_mean = np.mean(x, axis=0)
+        batch_var = np.var(x, axis=0)
+        batch_count = x.shape[0]
+        self.update_from_moments(batch_mean, batch_var, batch_count)
+
+    def update_from_moments(self, batch_mean, batch_var, batch_count):
+        delta = batch_mean - self.mean
+        tot_count = self.count + batch_count
+
+        new_mean = self.mean + delta * batch_count / tot_count
+        m_a = self.var * (self.count)
+        m_b = batch_var * (batch_count)
+        M2 = m_a + m_b + np.square(delta) * self.count * batch_count / (self.count + batch_count)
+        new_var = M2 / (self.count + batch_count)
+
+        new_count = batch_count + self.count
+
+        self.mean = new_mean
+        self.var = new_var
+        self.count = new_count
 
 class RewardForwardFilter(object):
     def __init__(self, gamma):
@@ -143,10 +172,12 @@ class RND(object):
 
         with tf.variable_scope('Policy', reuse=tf.AUTO_REUSE):
             self.policy = PPO(policy_model, input_shape, action_size, value_coeff=value_coeff, intr_coeff=intr_coeff, extr_coeff=extr_coeff, lr=lr, lr_final=lr_final, decay_steps=decay_steps, grad_clip=grad_clip, **policy_args)
-            
-        self.next_state = tf.placeholder(tf.float32, shape=[None, *input_shape], name='next_state')
-        self.state_mean = tf.placeholder(tf.float32, shape=[*input_shape], name="mean")
-        self.state_std = tf.placeholder(tf.float32, shape=[*input_shape], name="std")
+        
+        if len(input_shape) == 3:
+            next_state_shape = input_shape[:-1] + (1,)
+        self.next_state = tf.placeholder(tf.float32, shape=[None, *next_state_shape], name='next_state')
+        self.state_mean = tf.placeholder(tf.float32, shape=[*next_state_shape], name="mean")
+        self.state_std = tf.placeholder(tf.float32, shape=[*next_state_shape], name="std")
         norm_next_state = tf.clip_by_value((self.next_state - self.state_mean) / self.state_std, -5, 5)
 
         with tf.variable_scope('target_model'):
@@ -205,7 +236,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
                             save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars)
         self.runner = self.Runner(self.model, self.env, self.nsteps)
         self.alpha = 1
-        self.pred_prob = 1 / (self.num_envs / 32)
+        self.pred_prob = 1 / (self.num_envs / 32.0)
         self.lambda_ = 0.95
         self.num_epochs, self.num_minibatches = num_epochs, num_minibatches
         hyper_paras = {'learning_rate':model.lr, 'learning_rate_final':model.lr_final, 'lr_decay_steps':model.decay_steps,
@@ -251,11 +282,13 @@ class RND_Trainer(SyncMultiEnvTrainer):
             rand_actions = np.random.randint(0, self.model.action_size, size=self.num_envs)
             next_states, rewards, dones, infos = self.env.step(rand_actions)
             states += next_states
-        return states[np.newaxis] / num_steps
+        mean = states / num_steps
+        var = (states - mean) / num_steps
+        return mean, var
     
-    def forward_discount(self, rewards, gamma):
+    def discount(self, rewards, gamma):
         discounted = 0
-        for t in range(len(rewards)):
+        for t in reversed(range(len(rewards))):
             discounted = gamma * discounted  + rewards[t]
         return discounted
 
@@ -265,9 +298,14 @@ class RND_Trainer(SyncMultiEnvTrainer):
         num_updates = self.total_steps // (self.num_envs * self.nsteps)
         alpha_step = 1/num_updates
         s = 0
-        rolling = rolling_stats()
-        state_rolling = rolling_obs()
-        self.runner.state_mean, self.runner.state_std = state_rolling.update(self.init_state_obs(10000//self.num_envs))
+        rolling = RunningMeanStd(shape=())
+        state_rolling = RunningMeanStd(shape=(84,84,1))
+        #rolling = rolling_stats()
+        #state_rolling = rolling_obs()
+        batch_mean, batch_var = self.init_state_obs(128*50)
+        #self.runner.state_mean, self.runner.state_std = 
+        state_rolling.update_from_moments(batch_mean.mean(axis=0)[:,:,-1:], batch_var.mean(axis=0)[:,:,-1:], 10000)
+        self.runner.state_mean, self.runner.state_std = state_rolling.mean, np.sqrt(state_rolling.var)
         self.runner.states = self.env.reset()
         #scipy.misc.imshow(self.runner.states[0,:,:,-1] - self.runner.state_mean)
         forward_filter = RewardForwardFilter(self.gamma)
@@ -276,9 +314,12 @@ class RND_Trainer(SyncMultiEnvTrainer):
         for t in range(1,num_updates+1):
             states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, old_policies, dones = self.runner.run()
             policy, extr_last_values, intr_last_values = self.model.forward(next_states[-1])
-            rff_int = np.array([forward_filter.update(intr_rewards[i]) for i in range(len(intr_rewards))])
-            R_intr_mean, R_intr_std = rolling.update(rff_int.ravel().mean())
+            int_rff = np.array([forward_filter.update(intr_rewards[i]) for i in range(len(intr_rewards))])
+            #R_intr_mean, R_intr_std = rolling.update(self.discount(intr_rewards, self.gamma).ravel().mean()) #
+            rolling.update(int_rff.ravel())
+            R_intr_std = np.sqrt(rolling.var)
             intr_rewards /= R_intr_std
+            #print('intr reward', intr_rewards)
 
 
             Adv_extr = self.GAE(extr_rewards, values_extr, extr_last_values, dones, gamma=0.999, lambda_=self.lambda_)
@@ -287,7 +328,9 @@ class RND_Trainer(SyncMultiEnvTrainer):
             R_intr = Adv_intr + values_intr
             total_Adv = self.model.extr_coeff * Adv_extr + self.model.intr_coeff * Adv_intr
 
-            self.runner.state_mean, self.runner.state_std = state_rolling.update(next_states) # update state normalisation statistics 
+            #self.runner.state_mean, self.runner.state_std = state_rolling.update(fold_batch(next_states)[:,:,:,-1:]) # update state normalisation statistics 
+            state_rolling.update(fold_batch(next_states)[:,:,:,-1:]) # update state normalisation statistics 
+            self.runner.state_mean, self.runner.state_std = state_rolling.mean, np.sqrt(state_rolling.var)
 
             # perform minibatch gradient descent for K epochs 
             l = 0
@@ -302,9 +345,9 @@ class RND_Trainer(SyncMultiEnvTrainer):
                                                     fold_batch(actions[batch_idxs]), fold_batch(R_extr[batch_idxs]), fold_batch(R_intr[batch_idxs]), \
                                                     fold_batch(total_Adv[batch_idxs]), fold_batch(old_policies[batch_idxs])
                 
-                    mb_nextstates = mb_nextstates[np.where(np.random.uniform(size=(batch_size)) < self.pred_prob)]
+                    mb_nextstates = mb_nextstates[np.where(np.random.uniform(size=(batch_size)) < self.pred_prob)][:,:,:,-1:]
                     #mb_nextstates = (mb_nextstates  - self.runner.state_mean[np.newaxis,:,:,np.newaxis]) / self.runner.state_std[np.newaxis,:,:,np.newaxis]
-                    mean, std = np.stack([self.runner.state_mean for i in range(4)], -1), np.stack([self.runner.state_std for i in range(4)], -1)
+                    mean, std = self.runner.state_mean, self.runner.state_std
                     l += self.model.backprop(mb_states, mb_nextstates, mb_Rextr, mb_Rintr, mb_Adv, mb_actions, mb_old_policies, self.alpha, mean, std)
             
             l /= (self.num_epochs * self.num_minibatches)
@@ -343,8 +386,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
                 actions = [np.random.choice(policies.shape[1], p=policies[i]) for i in range(policies.shape[0])]
                 next_states, extr_rewards, dones, infos = self.env.step(actions)
 
-                mean, std = np.stack([self.state_mean for i in range(4)], -1), np.stack([self.state_std for i in range(4)], -1)
-                intr_rewards = self.model.intrinsic_reward(next_states, mean, std)
+                intr_rewards = self.model.intrinsic_reward(next_states[:,:,:,-1:], self.state_mean, self.state_std)
                 #print('intr rewards', intr_rewards)
                 rollout.append((self.states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, policies, dones))
                 self.states = next_states
@@ -377,6 +419,11 @@ def main(env_id, Atari=True):
         print('Classic Control')
         val_envs = [gym.make(env_id) for i in range(1)]
         envs = BatchEnv(DummyEnv, env_id, num_envs, blocking=False)
+    
+    elif 'Mario' in env_id:
+        print('Mario')
+        val_envs = [MarioEnv(gym.make(env_id), k=4, rescale=84, clip_reward=False, no_reward=False) for i in range(1)]
+        envs = BatchEnv(MarioEnv, env_id, num_envs, blocking=False, k=4, rescale=84, clip_reward=False, no_reward=True)
 
     else:
         print('Atari')
@@ -419,7 +466,7 @@ def main(env_id, Atari=True):
                 action_size = action_size,
                 intr_coeff=1.0,
                 extr_coeff=2.0,
-                value_coeff=1.0,
+                value_coeff=0.5,
                 lr=1e-4,
                 lr_final=1e-4,
                 decay_steps=50e6//(num_envs*nsteps),
@@ -442,7 +489,7 @@ def main(env_id, Atari=True):
                             save_freq = 0,
                             render_freq = 0,
                             num_val_episodes = 50,
-                            log_scalars=False)
+                            log_scalars=True)
     curiosity.train()
     
     del curiosity
@@ -451,7 +498,7 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
-    env_id_list = ['MontezumaRevengeDeterministic-v4', 'FreewayDeterministic-v4', 'SpaceInvadersDeterministic-v4', 'PongDeterministic-v4',]
+    env_id_list = ['MontezumaRevengeDeterministic-v4', 'SpaceInvadersDeterministic-v4','FreewayDeterministic-v4', 'PongDeterministic-v4',]
     #env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v1' ]
     #for i in range(5):
     for env_id in env_id_list:
