@@ -1,8 +1,8 @@
 import numpy as np
 import gym
-import gym_super_mario_bros
-from nes_py.wrappers import BinarySpaceToDiscreteSpaceEnv
-from gym_super_mario_bros.actions import COMPLEX_MOVEMENT
+#import gym_super_mario_bros
+#from nes_py.wrappers import BinarySpaceToDiscreteSpaceEnv
+#from gym_super_mario_bros.actions import COMPLEX_MOVEMENT
 import multiprocessing as mp
 import threading
 import time
@@ -19,17 +19,17 @@ from collections import deque
 #import line_profiler
 #profile = line_profiler.LineProfiler()
 
-def MarioEnv(env, rescale=84, k=4, clip_reward=True, no_reward=False):
-    env = BinarySpaceToDiscreteSpaceEnv(env, COMPLEX_MOVEMENT)
-    if clip_reward:
-        env = ClipRewardEnv(env)
-    if no_reward:
-        env = NoRewardEnv(env)
-    if rescale is not None:
-        env = RescaleEnv(env, rescale)
-    if k > 1:
-        env = StackEnv(env, k)
-    return env 
+# def MarioEnv(env, rescale=84, k=4, clip_reward=True, no_reward=False):
+#     env = BinarySpaceToDiscreteSpaceEnv(env, COMPLEX_MOVEMENT)
+#     if clip_reward:
+#         env = ClipRewardEnv(env)
+#     if no_reward:
+#         env = NoRewardEnv(env)
+#     if rescale is not None:
+#         env = RescaleEnv(env, rescale)
+#     if k > 1:
+#         env = StackEnv(env, k)
+#     return env 
 
 def AtariValidate(env):
     env = FireResetEnv(env)
