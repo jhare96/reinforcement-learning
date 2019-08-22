@@ -200,7 +200,7 @@ def main(env_id):
             print('only stack frames')
         
         val_envs = [AtariEnv(gym.make(env_id), k=4, episodic=False, reset=reset, clip_reward=False) for i in range(16)]
-        envs = BatchEnv(AtariEnv, env_id, num_envs, blocking=False , k=4, reset=reset, episodic=True, clip_reward=True)
+        envs = BatchEnv(AtariEnv, env_id, num_envs, blocking=False , k=4, reset=reset, episodic=False, clip_reward=True)
     
     action_size = val_envs[0].action_space.n
     input_size = val_envs[0].reset().shape
@@ -220,7 +220,7 @@ def main(env_id):
     ac_mlp_args = {'input_shape':input_size, 'dense_size':64, 'num_layers':2, 'action_size':action_size, 'lr':1e-3, 'grad_clip':0.5, 'decay_steps':5e6//(num_envs*nsteps), 'lr_final':0}
 
     
-    model = ActorCritic(mlp, input_size, action_size, lr=1e-3, lr_final=1e-3, decay_steps=50e6//(num_envs*nsteps), grad_clip=0.5) 
+    model = ActorCritic(nature_cnn, input_size, action_size, lr=1e-3, lr_final=1e-3, decay_steps=50e6//(num_envs*nsteps), grad_clip=0.5) 
     
 
     a2c = A2C(envs = envs,
@@ -229,12 +229,12 @@ def main(env_id):
               val_envs = val_envs,
               train_mode = 'nstep',
               return_type = 'GAE',
-              total_steps = 5e6,
+              total_steps = 50e6,
               nsteps = nsteps,
-              validate_freq = 1e5,
+              validate_freq = 1e6,
               save_freq = 0,
               render_freq = 0,
-              num_val_episodes = 25,
+              num_val_episodes = 50,
               log_scalars = True)
 
     a2c.train()
@@ -244,8 +244,8 @@ def main(env_id):
     tf.reset_default_graph()
 
 if __name__ == "__main__":
-    env_id_list = ['FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
-    env_id_list = ['CartPole-v1', 'MountainCar-v0', 'Acrobot-v1']
+    env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
+    #env_id_list = ['CartPole-v1', 'MountainCar-v0', 'Acrobot-v1']
     #for i in range(4):
     for env_id in env_id_list:
         main(env_id)
