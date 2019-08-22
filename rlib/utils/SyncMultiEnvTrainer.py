@@ -9,7 +9,7 @@ from rlib.utils.utils import fold_batch
 
 
 class SyncMultiEnvTrainer(object):
-    def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', total_steps=10000, nsteps=5, gamma=0.99, lambda_=0.95, 
+    def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', return_type='nstep', total_steps=10000, nsteps=5, gamma=0.99, lambda_=0.95, 
                      validate_freq=1e6, save_freq=0, render_freq=0, update_target_freq = 10000, num_val_episodes=50,
                      log_scalars=True):
         '''
@@ -33,6 +33,8 @@ class SyncMultiEnvTrainer(object):
         if train_mode not in ['nstep', 'onestep']:
             raise ValueError('train_mode %s is not a valid argument. Valid arguments are ... %s, %s' %(train_mode,'nstep','onestep'))
         assert num_val_episodes >= len(val_envs), 'number of validation epsiodes {} must be greater than or equal to the number of validation envs {}'.format(num_val_episodes, len(val_envs))
+        if return_type.lower() not in ['nstep', 'lambda', 'gae']:
+            raise ValueError('return_type %s is not a valid argument. Valid arguments are ... %s, %s, %s' %(return_type, 'nstep', 'lambda', 'gae'))
         self.train_mode = train_mode
         self.num_envs = len(envs)
         self.env_id = envs.spec.id
@@ -49,9 +51,10 @@ class SyncMultiEnvTrainer(object):
     
         self.total_steps = int(total_steps)
         self.nsteps = nsteps
-
+        self.return_type = return_type.lower()
         self.gamma = gamma
         self.lambda_ = lambda_
+
         self.validate_freq = int(validate_freq / (self.num_envs*self.nsteps))
         self.num_val_episodes = num_val_episodes
         self.lock = threading.Lock()
@@ -110,8 +113,12 @@ class SyncMultiEnvTrainer(object):
         # main loop
         for t in range(1,num_updates+1):
             states, actions, rewards, dones, infos, values, last_values = self.runner.run()
-            R = self.nstep_return(rewards, last_values, dones, gamma=self.gamma)
-            # R = self.lambda_return(rewards, values, last_values, dones, gamma=self.gamma, lambda_=self.lambda_, clip=False)
+            if self.return_type == 'nstep':
+                R = self.nstep_return(rewards, last_values, dones, gamma=self.gamma)
+            elif self.return_type == 'gae':
+                R = self.GAE(rewards, values, last_values, dones, gamma=self.gamma, lambda_=self.lambda_) + values
+            elif self.return_type == 'lambda':
+                R = self.lambda_return(rewards, values, last_values, dones, gamma=self.gamma, lambda_=self.lambda_, clip=False)
             # stack all states, actions and Rs from all workers into a single batch
             states, actions, R = fold_batch(states), fold_batch(actions), fold_batch(R)    
             l = self.model.backprop(states, R, actions)
@@ -159,7 +166,7 @@ class SyncMultiEnvTrainer(object):
         R[-1] =  last_values * (1-dones[-1])
         for t in reversed(range(T-1)):
             # restart score if done as BatchEnv automatically resets after end of episode
-            R[t] = rewards[t] + gamma * (lambda_* R[t+1] + (1.0-lambda_)*values[t+1]) * (1-dones[t])
+            R[t] = rewards[t] + gamma * (lambda_* R[t+1] + (1.0-lambda_) * values[t+1]) * (1-dones[t])
         
         return R
 
