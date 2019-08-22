@@ -609,7 +609,7 @@ def main(env_id, Atari=True):
                             save_freq = 0,
                             render_freq = 0,
                             num_val_episodes = 50,
-                            log_scalars=False)
+                            log_scalars=True)
     curiosity.train()
     
     del curiosity
