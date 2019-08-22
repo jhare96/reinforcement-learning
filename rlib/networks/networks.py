@@ -166,6 +166,48 @@ def dynamic_masked_rnn(cell, X, hidden_init, mask, parallel_iterations=32, swap_
         
     return output, hidden
 
+
+def one_to_many_rnn(cell, X, hidden_init, num_timesteps, parallel_iterations=32, swap_memory=False, time_major=True, scope='rnn', trainable=True):
+    ''' dynamic masked *hidden state* RNN for sequences that reset part way through an observation 
+        e.g. A2C 
+        args :
+            cell - cell of type tf.nn.rnn_cell
+            X - tensor of rank [batch, hidden]
+            hidden_init - tensor or placeholder of intial cell hidden state
+            mask - tensor or placeholder of length time, for hidden state masking e.g. [True, False, False] will mask first hidden state
+            parallel_iterations - number of parallel iterations to run RNN over
+            swap_memory - 
+            time_major - bool flag to determine order of indices of input tensor 
+            scope - tf variable_scope of dynamic RNN loop
+            trainable - bool flag whether to perform backpropagation to RNN cell
+    '''
+    with tf.variable_scope(scope):
+        
+        def _body(t, input, hidden, output):
+            out, hidden = cell(input, hidden)
+            return t+1, out, hidden, output.write(t, out)
+        
+        time_steps = tf.shape(num_timesteps)[0]
+        stacked_output = tf.TensorArray(tf.float32, size=time_steps, dynamic_size=True)
+        t = 0
+        t, X, hidden, stacked_output = tf.while_loop(
+        cond=lambda time, *_: time < time_steps,
+        body=_body,
+        loop_vars=(t, X, hidden_init, stacked_output),
+        parallel_iterations=parallel_iterations,
+        swap_memory=swap_memory,
+        back_prop=trainable) # allow flag for reservoir computing 
+
+        #maximum_iterations=time_steps,
+        #)
+
+        stacked_output = stacked_output.stack()
+        if not time_major:
+            stacked_output = tf.transpose(stacked_output, perm=[1,0,2])
+        
+    return stacked_output, hidden
+
+
 def universe_cnn(input, conv_size=32, trainable=True):
     x = input / 255
     h1 = conv2d(x , conv_size, [3,3], [2,2], padding='SAME', name='conv_1', activation=tf.nn.elu, trainable=trainable)
@@ -175,7 +217,7 @@ def universe_cnn(input, conv_size=32, trainable=True):
     fc = flatten(h4)
     return fc
 
-def nips_cnn(input, conv1_size=16 ,conv2_size=21, dense_size=256, padding='VALID'):
+def nips_cnn(input, conv1_size=16 ,conv2_size=32, dense_size=256, padding='VALID'):
     x = input/255
     h1 = conv2d(x,  output_channels=conv1_size, kernel_size=[8,8], strides=[4,4], padding=padding, activation=tf.nn.relu, dtype=tf.float32, name='conv_1')
     h2 = conv2d(h1, output_channels=conv2_size, kernel_size=[4,4], strides=[2,2], padding=padding, activation=tf.nn.relu, dtype=tf.float32, name='conv_2')
@@ -191,6 +233,15 @@ def nature_cnn(input, conv1_size=32 ,conv2_size=64, conv3_size=64, dense_size=51
     fc = flatten(h3)
     dense = mlp_layer(fc, dense_size, activation=activation, trainable=trainable)
     return dense
+
+def nature_deconv(input):
+    feat_map = mlp_layer(input, 7*7*64, activation=tf.nn.relu, name='featmap1')
+    feat_map = tf.reshape(feat_map, shape=[-1,7,7,64], name='feature_map')
+    batch_size = tf.shape(feat_map)[0]
+    deconv1 = conv_transpose_layer(feat_map, output_shape=[batch_size,9,9,64], kernel_size=[3,3], strides=[1,1], padding='VALID', activation=tf.nn.relu, name='deconv1')
+    deconv2 = conv_transpose_layer(deconv1, output_shape=[batch_size,20,20,64], kernel_size=[4,4], strides=[2,2], padding='VALID', activation=tf.nn.relu, name='deconv2')
+    deconv3 = conv_transpose_layer(deconv2, output_shape=[batch_size,84,84,4], kernel_size=[8,8], strides=[4,4], padding='VALID', activation=tf.nn.relu, name='deconv3')
+    return deconv3
 
 def mlp(x, num_layers=2, dense_size=64, activation=tf.nn.relu, weight_initialiser=tf.glorot_uniform_initializer, bias_initialiser=tf.zeros_initializer, trainable=True):
     for i in range(num_layers):
