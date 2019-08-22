@@ -185,7 +185,7 @@ def stackFireReset(env):
 
 def main(env_id):
     num_envs = 32
-    nsteps = 20
+    nsteps = 5
 
     train_log_dir = 'logs/SyncDoubleDQN/' + env_id + '/eligible/'
     model_dir = "models/SyncDoubleDQN/" + env_id + '/'
@@ -208,7 +208,7 @@ def main(env_id):
             print('only stack frames')
         
         val_envs = [AtariEnv(gym.make(env_id), k=4, episodic=False, reset=reset, clip_reward=False) for i in range(16)]
-        envs = BatchEnv(AtariEnv, env_id, num_envs, blocking=False , k=4, reset=reset, episodic=True, clip_reward=True, time_limit=4500)
+        envs = BatchEnv(AtariEnv, env_id, num_envs, blocking=False , k=4, reset=reset, episodic=False, clip_reward=True, time_limit=4500)
 
     action_size = val_envs[0].action_space.n
     input_size = val_envs[0].reset().shape
@@ -217,8 +217,8 @@ def main(env_id):
     print('action space', action_size)
 
       
-    Q = DQN(mlp, input_shape=input_size, action_size=action_size, name='Q', lr=1e-3, lr_final=1e-3, grad_clip=0.5, decay_steps=50e6)
-    TargetQ = DQN(mlp, input_shape=input_size, action_size=action_size, name='QTarget', lr=1e-3, lr_final=1e-3, grad_clip=0.5, decay_steps=50e6)  
+    Q = DQN(nature_cnn, input_shape=input_size, action_size=action_size, name='Q', lr=1e-3, lr_final=1e-3, grad_clip=0.5, decay_steps=50e6)
+    TargetQ = DQN(nature_cnn, input_shape=input_size, action_size=action_size, name='QTarget', lr=1e-3, lr_final=1e-3, grad_clip=0.5, decay_steps=50e6)  
 
     
 
@@ -229,21 +229,21 @@ def main(env_id):
                     val_envs=val_envs,
                     action_size=action_size,
                     train_mode='nstep',
-                    return_type='lambda',
-                    total_steps=5e6,
+                    return_type='nstep',
+                    total_steps=50e6,
                     nsteps=nsteps,
                     gamma=0.99,
                     lambda_=0.95,
                     save_freq=0,
                     render_freq=0,
-                    validate_freq=1e5,
+                    validate_freq=1e6,
                     num_val_episodes=50,
                     update_target_freq=10000,
                     epsilon_start=1,
                     epsilon_final=0.01,
                     epsilon_steps=2e6,
                     epsilon_test=0.01,
-                    log_scalars=False)
+                    log_scalars=True)
     
    
     
@@ -256,8 +256,8 @@ def main(env_id):
     tf.reset_default_graph()
 
 if __name__ == "__main__":
-    env_id_list = ['MontezumaRevengeDeterministic-v4', 'FreewayDeterministic-v4', 'SpaceInvadersDeterministic-v4', 'PongDeterministic-v4', 'SeaquestDeterministic-v4']
-    env_id_list = ['MountainCar-v0', 'Acrobot-v1', ]
+    env_id_list = [ 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', ]#'MontezumaRevengeDeterministic-v4', ]
+    #env_id_list = ['MountainCar-v0', 'Acrobot-v1', ]
     #for i in range(5):
     for env_id in env_id_list:
         main(env_id)
