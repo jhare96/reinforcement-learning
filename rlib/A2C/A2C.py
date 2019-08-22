@@ -10,6 +10,7 @@ import copy
 from rlib.networks.networks import*
 from rlib.utils.VecEnv import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.utils.utils import fold_batch, stack_many
 
 
 
@@ -17,12 +18,6 @@ from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 #tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 
 main_lock = threading.Lock()
-
-def save_hyperparameters(filename, **kwargs):
-    handle = open(filename, "w")
-    for key, value in kwargs.items():
-        handle.write("{} = {}\n" .format(key, value))
-    handle.close()
 
 class ActorCritic(object):
     def __init__(self, model, input_shape, action_size, lr=1e-3, lr_final=1e-6, decay_steps=6e5, grad_clip = 0.5, **model_args):
@@ -62,7 +57,8 @@ class ActorCritic(object):
         
         
         self.loss =  policy_loss + 0.5 * value_loss - 0.01 * entropy
-        optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
+        #optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
+        optimiser = tf.train.AdamOptimizer(lr)
 
         self.weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name)
         grads = tf.gradients(self.loss, self.weights)
@@ -80,7 +76,7 @@ class ActorCritic(object):
         return self.sess.run(self.V, feed_dict = {self.state: state})
 
     def backprop(self, state, R, a):
-        *_,l = self.sess.run([self.optimiser, self.loss], feed_dict = {self.state : state, self.R : R, self.actions: a})
+        *_,l = self.sess.run([self.optimiser, self.loss], feed_dict = {self.state:state, self.R:R, self.actions:a})
         return l
     
     def set_session(self, sess):
@@ -92,9 +88,21 @@ class ActorCritic(object):
                     # validate_freq=1e6, save_freq=0, render_freq=0, update_target_freq = 10000)
 
 class A2C(SyncMultiEnvTrainer):
-    def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', total_steps=1000000, nsteps=5, validate_freq=1e6, save_freq=0, render_freq=0):
-        super().__init__(envs, model, file_loc, val_envs, train_mode, total_steps, nsteps, validate_freq, save_freq, render_freq, 0)
+    def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', return_type='nstep', total_steps=10000, nsteps=5, gamma=0.99, lambda_=0.95,
+                 validate_freq=1000000.0, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True):
+        
+        super().__init__(envs, model, file_loc, val_envs, train_mode=train_mode, return_type=return_type, total_steps=total_steps, nsteps=nsteps,
+         gamma=gamma, lambda_=lambda_, validate_freq=validate_freq, save_freq=save_freq, render_freq=render_freq, update_target_freq=0,
+         num_val_episodes=num_val_episodes, log_scalars=log_scalars)
+        
         self.runner = self.Runner(self.model,self.env,self.nsteps)
+
+        hyperparas = {'learning_rate':model.lr, 'learning_rate_final':model.lr_final, 'lr_decay_steps':model.decay_steps , 'grad_clip':model.grad_clip, 'nsteps':nsteps, 'num_workers':self.num_envs,
+                  'total_steps':total_steps, 'entropy_coefficient':0.01, 'value_coefficient':0.5 , 'return type':self.return_type}
+        
+        if log_scalars:
+            filename = file_loc[1] + self.current_time + '/' + 'hyperparameters.txt'
+            self.save_hyperparameters(filename , **hyperparas)
 
     class Runner(SyncMultiEnvTrainer.Runner):
         def __init__(self,model,env,num_steps):
@@ -106,12 +114,12 @@ class A2C(SyncMultiEnvTrainer):
                 policies, values = self.model.forward(self.states)
                 actions = [np.random.choice(policies.shape[1], p=policies[i]) for i in range(policies.shape[0])]
                 next_states, rewards, dones, infos = self.env.step(actions)
-                rollout.append((self.states, actions, rewards, dones, infos))
+                rollout.append((self.states, actions, rewards, values, dones, np.array(infos)))
                 self.states = next_states
             
-            states, actions, rewards, dones, infos = zip(*rollout)
-            states, actions, rewards, dones = np.stack(states), np.stack(actions), np.stack(rewards), np.stack(dones)
-            return states, actions, rewards, dones, infos, values
+            states, actions, rewards, values, dones, infos = stack_many(zip(*rollout))
+            _, last_values = self.model.forward(next_states)
+            return states, actions, rewards, dones, infos, values, last_values
     
     def get_action(self, state):
         policy, value = self.model.forward(state)
@@ -164,7 +172,7 @@ class A2C(SyncMultiEnvTrainer):
 def main(env_id):
     
     num_envs = 32
-    nsteps = 5
+    nsteps = 20
     
     train_log_dir = 'logs/A2C/' + env_id +'/'
     model_dir = "models/A2C/" + env_id + '/'
@@ -212,7 +220,7 @@ def main(env_id):
     ac_mlp_args = {'input_shape':input_size, 'dense_size':64, 'num_layers':2, 'action_size':action_size, 'lr':1e-3, 'grad_clip':0.5, 'decay_steps':5e6//(num_envs*nsteps), 'lr_final':0}
 
     
-    model = ActorCritic(nature_cnn, input_size, action_size, lr=1e-3, lr_final=1e-3, decay_steps=50e6//(num_envs*nsteps), grad_clip=0.5) 
+    model = ActorCritic(mlp, input_size, action_size, lr=1e-3, lr_final=1e-3, decay_steps=50e6//(num_envs*nsteps), grad_clip=0.5) 
     
 
     a2c = A2C(envs = envs,
@@ -220,17 +228,14 @@ def main(env_id):
               file_loc = [model_dir, train_log_dir],
               val_envs = val_envs,
               train_mode = 'nstep',
-              total_steps = 50e6,
+              return_type = 'GAE',
+              total_steps = 5e6,
               nsteps = nsteps,
-              validate_freq = 1e6,
+              validate_freq = 1e5,
               save_freq = 0,
-              render_freq = 0)
-
-    hyperparas = {'learning_rate':a2c.model.lr, 'learning_rate_final':a2c.model.lr_final, 'lr_decay_steps':a2c.model.decay_steps , 'grad_clip':a2c.model.grad_clip, 'nsteps':nsteps, 'num_workers':num_envs,
-                  'total_steps':a2c.total_steps, 'entropy_coefficient':0.01, 'value_coefficient':0.5 }
-
-    filename = train_log_dir + a2c.current_time + '/' + 'hyperparameters.txt'
-    save_hyperparameters(filename , **hyperparas)
+              render_freq = 0,
+              num_val_episodes = 25,
+              log_scalars = True)
 
     a2c.train()
 
@@ -240,7 +245,7 @@ def main(env_id):
 
 if __name__ == "__main__":
     env_id_list = ['FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
-    #env_id_list = ['CartPole-v1', 'MountainCar-v0', 'Acrobot-v1']
+    env_id_list = ['CartPole-v1', 'MountainCar-v0', 'Acrobot-v1']
     #for i in range(4):
     for env_id in env_id_list:
         main(env_id)

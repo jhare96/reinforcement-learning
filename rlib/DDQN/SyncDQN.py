@@ -52,7 +52,8 @@ class DQN(object):
         
             global_step = tf.Variable(0, trainable=False)
             lr = tf.train.polynomial_decay(lr, global_step, decay_steps, end_learning_rate=lr_final, power=1.0, cycle=False, name=None)
-            optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
+            #optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
+            optimiser = tf.train.AdamOptimizer(lr)
             
             self.weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
             grads = tf.gradients(self.loss, self.weights)
@@ -76,12 +77,12 @@ class DQN(object):
 
 class SyncDDQN(SyncMultiEnvTrainer):
     def __init__(self, envs, model, target_model, file_loc, val_envs, action_size,
-                     train_mode='nstep', total_steps=1000000, nsteps=5, gamma=0.99, lambda_=0.6,
+                     train_mode='nstep', return_type='nstep', total_steps=1000000, nsteps=5, gamma=0.99, lambda_=0.6,
                      validate_freq=1e6, save_freq=0, render_freq=0, update_target_freq=10000, num_val_episodes=50, log_scalars=True,
                      epsilon_start=1, epsilon_final=0.01, epsilon_steps = 1e6, epsilon_test=0.01):
 
         
-        super().__init__(envs=envs, model=model, file_loc=file_loc, val_envs=val_envs, train_mode=train_mode, total_steps=total_steps,
+        super().__init__(envs=envs, model=model, file_loc=file_loc, val_envs=val_envs, train_mode=train_mode, return_type=return_type, total_steps=total_steps,
                 nsteps=nsteps, gamma=gamma, lambda_=lambda_, validate_freq=validate_freq, save_freq=save_freq, render_freq=render_freq,
                 update_target_freq=update_target_freq, num_val_episodes=num_val_episodes, log_scalars=log_scalars)
         
@@ -101,7 +102,7 @@ class SyncDDQN(SyncMultiEnvTrainer):
         self.target_model.set_session(self.sess)
 
         hyper_paras = {'learning_rate':self.model.lr, 'learning_rate_final':self.model.lr_final, 'lr_decay_steps':self.model.decay_steps , 'grad_clip':self.model.grad_clip,
-         'nsteps':self.nsteps, 'num_workers':self.num_envs, 'total_steps':self.total_steps, 'gamma':gamma, 'lambda':lambda_,
+         'nsteps':self.nsteps, 'num_workers':self.num_envs, 'return type':self.return_type, 'total_steps':self.total_steps, 'gamma':gamma, 'lambda':lambda_,
          'epsilon_start':self.epsilon, 'epsilon_final':self.epsilon_final, 'epsilon_steps':self.epsilon_steps, 'update_freq':update_target_freq}
         
         hyper_paras = OrderedDict(hyper_paras)
@@ -182,9 +183,9 @@ def stackFireReset(env):
     return StackEnv(FireResetEnv(env))
 
 
-def main(env_id, epsilon_final, epsilon_steps):
+def main(env_id):
     num_envs = 32
-    nsteps = 5
+    nsteps = 20
 
     train_log_dir = 'logs/SyncDoubleDQN/' + env_id + '/eligible/'
     model_dir = "models/SyncDoubleDQN/" + env_id + '/'
@@ -216,32 +217,33 @@ def main(env_id, epsilon_final, epsilon_steps):
     print('action space', action_size)
 
       
-    Q = DQN(nature_cnn, input_shape=input_size, action_size=action_size, name='Q', lr=1e-3, lr_final=1e-3, grad_clip=0.5, decay_steps=50e6)
-    TargetQ = DQN(nature_cnn, input_shape=input_size, action_size=action_size, name='QTarget', lr=1e-3, lr_final=1e-3, grad_clip=0.5, decay_steps=50e6)  
+    Q = DQN(mlp, input_shape=input_size, action_size=action_size, name='Q', lr=1e-3, lr_final=1e-3, grad_clip=0.5, decay_steps=50e6)
+    TargetQ = DQN(mlp, input_shape=input_size, action_size=action_size, name='QTarget', lr=1e-3, lr_final=1e-3, grad_clip=0.5, decay_steps=50e6)  
 
     
 
-    DDQN = SyncDDQN(envs = envs,
-                    model = Q,
-                    target_model = TargetQ,
-                    file_loc = [model_dir, train_log_dir],
-                    val_envs = val_envs,
-                    action_size = action_size,
-                    train_mode ='nstep',
-                    total_steps = 50e6,
-                    nsteps = nsteps,
+    DDQN = SyncDDQN(envs=envs,
+                    model=Q,
+                    target_model=TargetQ,
+                    file_loc=[model_dir, train_log_dir],
+                    val_envs=val_envs,
+                    action_size=action_size,
+                    train_mode='nstep',
+                    return_type='lambda',
+                    total_steps=5e6,
+                    nsteps=nsteps,
                     gamma=0.99,
-                    lambda_=None,
-                    save_freq = 0,
-                    render_freq = 0,
-                    validate_freq = 1e6,
-                    num_val_episodes= 50,
-                    update_target_freq = 10000,
-                    epsilon_start = 1,
-                    epsilon_final = epsilon_final,
-                    epsilon_steps = epsilon_steps,
-                    epsilon_test = 0.01,
-                    log_scalars=True)
+                    lambda_=0.95,
+                    save_freq=0,
+                    render_freq=0,
+                    validate_freq=1e5,
+                    num_val_episodes=50,
+                    update_target_freq=10000,
+                    epsilon_start=1,
+                    epsilon_final=0.01,
+                    epsilon_steps=2e6,
+                    epsilon_test=0.01,
+                    log_scalars=False)
     
    
     
@@ -255,8 +257,8 @@ def main(env_id, epsilon_final, epsilon_steps):
 
 if __name__ == "__main__":
     env_id_list = ['MontezumaRevengeDeterministic-v4', 'FreewayDeterministic-v4', 'SpaceInvadersDeterministic-v4', 'PongDeterministic-v4', 'SeaquestDeterministic-v4']
-    #env_id_list = ['Acrobot-v1', 'MountainCar-v0', ]
+    env_id_list = ['MountainCar-v0', 'Acrobot-v1', ]
     #for i in range(5):
     for env_id in env_id_list:
-        main(env_id, 0.01, 2e6)
+        main(env_id)
    # env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v0']
