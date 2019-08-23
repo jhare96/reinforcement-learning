@@ -55,7 +55,7 @@ class SyncMultiEnvTrainer(object):
         self.gamma = gamma
         self.lambda_ = lambda_
 
-        self.validate_freq = int(validate_freq / (self.num_envs*self.nsteps))
+        self.validate_freq = int(validate_freq // (self.num_envs*self.nsteps))
         self.num_val_episodes = num_val_episodes
         self.lock = threading.Lock()
 
@@ -78,7 +78,7 @@ class SyncMultiEnvTrainer(object):
             tf_sum_epReward = tf.compat.v1.summary.scalar('episode_reward', tf_epReward)
             self.tf_summary_scalars= (tf_sum_epLoss,tf_sum_epReward)
             
-            self.train_writer = tf.compat.v1.summary.FileWriter(train_log_dir, self.sess.graph)
+            self.train_writer = tf.compat.v1.summary.FileWriter(train_log_dir)
 
         
         self.saver = tf.train.Saver()

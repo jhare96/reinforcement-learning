@@ -256,10 +256,10 @@ def main(env_id):
     tf.reset_default_graph()
 
 if __name__ == "__main__":
-    #env_id_list = [ 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', ]#'MontezumaRevengeDeterministic-v4', ]
+    #env_id_list = [ 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4']#'MontezumaRevengeDeterministic-v4', ]
     env_id_list = ['MontezumaRevengeDeterministic-v4']
     #env_id_list = ['MountainCar-v0', 'Acrobot-v1', ]
-    for i in range(3):
+    for i in range(1):
         for env_id in env_id_list:
             main(env_id)
    # env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v0']
