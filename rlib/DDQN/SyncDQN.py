@@ -185,7 +185,7 @@ def stackFireReset(env):
 
 def main(env_id):
     num_envs = 32
-    nsteps = 5
+    nsteps = 20
 
     train_log_dir = 'logs/SyncDoubleDQN/' + env_id + '/eligible/'
     model_dir = "models/SyncDoubleDQN/" + env_id + '/'
@@ -229,7 +229,7 @@ def main(env_id):
                     val_envs=val_envs,
                     action_size=action_size,
                     train_mode='nstep',
-                    return_type='nstep',
+                    return_type='lambda',
                     total_steps=50e6,
                     nsteps=nsteps,
                     gamma=0.99,
@@ -256,9 +256,10 @@ def main(env_id):
     tf.reset_default_graph()
 
 if __name__ == "__main__":
-    env_id_list = [ 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', ]#'MontezumaRevengeDeterministic-v4', ]
+    #env_id_list = [ 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', ]#'MontezumaRevengeDeterministic-v4', ]
+    env_id_list = ['MontezumaRevengeDeterministic-v4']
     #env_id_list = ['MountainCar-v0', 'Acrobot-v1', ]
-    #for i in range(5):
-    for env_id in env_id_list:
-        main(env_id)
+    for i in range(3):
+        for env_id in env_id_list:
+            main(env_id)
    # env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v0']
