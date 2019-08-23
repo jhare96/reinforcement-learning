@@ -111,6 +111,9 @@ class SyncDDQN(SyncMultiEnvTrainer):
             filename = file_loc[1] + self.current_time + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
         
+        init = tf.global_variables_initializer()
+        self.sess.run(init)
+        
     
     def get_action(self, state):
         if np.random.uniform() < self.epsilon_test:
