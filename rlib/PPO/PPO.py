@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 import time
 import gym
 
@@ -87,11 +88,12 @@ class PPO(object):
 
 class PPO_Trainer(SyncMultiEnvTrainer):
     def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', total_steps=1000000, nsteps=5, num_epochs=4, num_minibatches=4,
-                 validate_freq=1000000.0, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True, gpu_growth=False):
+                 validate_freq=1000000.0, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True, gpu_growth=True):
         
         super().__init__(envs, model, file_loc, val_envs, train_mode=train_mode, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
                             save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars,
                             gpu_growth=gpu_growth)
+
         self.runner = self.Runner(self.model, self.env, self.nsteps)
         #self.old_model = old_model
         #self.old_model.set_session(self.sess)
@@ -180,12 +182,6 @@ class PPO_Trainer(SyncMultiEnvTrainer):
 
 
 def main(env_id, Atari=True):
-    config = tf.ConfigProto() #GPU 
-    config.gpu_options.allow_growth=True #GPU
-    sess = tf.Session(config=config)
-
-    print('gpu aviabliable', tf.test.is_gpu_available())
-
     num_envs = 32
     nsteps = 128
 
