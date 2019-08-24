@@ -86,14 +86,19 @@ class PPO(object):
 
 
 class PPO_Trainer(SyncMultiEnvTrainer):
-    def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', total_steps=1000000, nsteps=5, validate_freq=1000000.0, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True):
+    def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', total_steps=1000000, nsteps=5, num_epochs=4, num_minibatches=4,
+                 validate_freq=1000000.0, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True, gpu_growth=False):
+        
         super().__init__(envs, model, file_loc, val_envs, train_mode=train_mode, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
-                            save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars)
+                            save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars,
+                            gpu_growth=gpu_growth)
         self.runner = self.Runner(self.model, self.env, self.nsteps)
         #self.old_model = old_model
         #self.old_model.set_session(self.sess)
         self.alpha = 1
         self.lambda_ = 0.95
+        self.num_epochs, self.num_minibatches = num_epochs, num_minibatches
+
         hyper_paras = {'learning_rate':model.lr, 'learning_rate_final':model.lr_final, 'lr_decay_steps':model.decay_steps,
             'grad_clip':model.grad_clip, 'nsteps':self.nsteps, 'num_workers':self.num_envs, 'total_steps':self.total_steps,
             'entropy_coefficient':0.01, 'value_coefficient':1.0}
@@ -109,6 +114,7 @@ class PPO_Trainer(SyncMultiEnvTrainer):
         num_updates = self.total_steps // (self.num_envs * self.nsteps)
         alpha_step = 1/num_updates
         s = 0
+        batch_size = self.nsteps//self.num_minibatches
         start = time.time()
         # main loop
         for t in range(1,num_updates+1):
@@ -116,9 +122,8 @@ class PPO_Trainer(SyncMultiEnvTrainer):
             Adv = self.GAE(rewards, values, last_values, dones, gamma=0.99, lambda_=self.lambda_)
             R = Adv + values
             l = 0
-            for epoch in range(3):
-                batch_size = 32
-                idxs = np.arange(len(states))
+            idxs = np.arange(len(states))
+            for epoch in range(self.num_epochs):
                 np.random.shuffle(idxs)
                 for batch in range(0,len(states),batch_size):
                     batch_idxs = idxs[batch:batch+batch_size]
@@ -128,7 +133,8 @@ class PPO_Trainer(SyncMultiEnvTrainer):
                                                     fold_batch(Adv[batch_idxs]), fold_batch(old_policies[batch_idxs])
                     
                     l += self.model.backprop(mb_states, mb_R, mb_Adv, mb_actions, mb_old_policies, self.alpha)
-            l /= (3*4)
+            
+            l /= (self.num_epochs*self.num_minibatches)
            
             #self.alpha -= alpha_step
             
@@ -174,8 +180,6 @@ class PPO_Trainer(SyncMultiEnvTrainer):
 
 
 def main(env_id, Atari=True):
-
-
     config = tf.ConfigProto() #GPU 
     config.gpu_options.allow_growth=True #GPU
     sess = tf.Session(config=config)
@@ -206,7 +210,7 @@ def main(env_id, Atari=True):
             print('only stack frames')
         
         val_envs = [AtariEnv(gym.make(env_id), k=4, rescale=84, episodic=False, reset=reset, clip_reward=False) for i in range(16)]
-        envs = BatchEnv(AtariEnv, env_id, num_envs, blocking=False, rescale=84, k=4, reset=reset, episodic=True, clip_reward=True, time_limit=4500)
+        envs = BatchEnv(AtariEnv, env_id, num_envs, blocking=False, rescale=84, k=4, reset=reset, episodic=False, clip_reward=True, time_limit=4500)
         
     
     env.close()
@@ -237,6 +241,7 @@ def main(env_id, Atari=True):
                 lr_final=1e-4,
                 decay_steps=50e6//(num_envs*nsteps),
                 grad_clip=0.5,
+                value_coeff=0.5,
                 name='Policy')
                  #'activation':tf.nn.leaky_relu
     
@@ -246,13 +251,16 @@ def main(env_id, Atari=True):
                             file_loc = [model_dir, train_log_dir],
                             val_envs = val_envs,
                             train_mode = 'nstep',
-                            total_steps = 5e6,
+                            total_steps = 50e6,
                             nsteps = nsteps,
-                            validate_freq = 1e5,
+                            num_epochs=4,
+                            num_minibatches=4,
+                            validate_freq = 1e6,
                             save_freq = 0,
                             render_freq = 0,
-                            num_val_episodes = 25,
-                            log_scalars=False)
+                            num_val_episodes = 50,
+                            log_scalars=True,
+                            gpu_growth=False)
     curiosity.train()
     
     del curiosity
@@ -261,8 +269,8 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
-    env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4',]
-    #env_id_list = ['Acrobot-v1', 'MountainCar-v0', 'CartPole-v1' ]
+    env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4']
+    #env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v1' ]
     #for i in range(5):
     for env_id in env_id_list:
         main(env_id)
