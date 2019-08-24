@@ -11,7 +11,7 @@ from rlib.utils.utils import fold_batch
 class SyncMultiEnvTrainer(object):
     def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', return_type='nstep', total_steps=10000, nsteps=5, gamma=0.99, lambda_=0.95, 
                      validate_freq=1e6, save_freq=0, render_freq=0, update_target_freq = 10000, num_val_episodes=50,
-                     log_scalars=True):
+                     log_scalars=True, gpu_growth=True):
         '''
             A synchronous multiple env training framework for tensorflow v.1 api 
 
@@ -42,8 +42,8 @@ class SyncMultiEnvTrainer(object):
         self.validate_rewards = []
         self.model = model
 
-        config = tf.compat.v1.ConfigProto() #GPU 
-        config.gpu_options.allow_growth=True #GPU
+        config = tf.compat.v1.ConfigProto() # GPU 
+        config.gpu_options.allow_growth = gpu_growth # GPU settings 
         #config.log_device_placement=True
         #config = tf.ConfigProto(device_count = {'GPU': 0}) #CPU ONLY
         self.sess = tf.compat.v1.Session(config=config)

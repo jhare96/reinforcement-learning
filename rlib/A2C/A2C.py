@@ -20,7 +20,7 @@ from rlib.utils.utils import fold_batch, stack_many
 main_lock = threading.Lock()
 
 class ActorCritic(object):
-    def __init__(self, model, input_shape, action_size, lr=1e-3, lr_final=1e-6, decay_steps=6e5, grad_clip = 0.5, **model_args):
+    def __init__(self, model, input_shape, action_size, lr=1e-3, lr_final=0, decay_steps=80e3, grad_clip=0.5, **model_args):
         self.lr, self.lr_final = lr, lr_final
         self.decay_steps = decay_steps
         self.grad_clip = grad_clip
@@ -89,11 +89,11 @@ class ActorCritic(object):
 
 class A2C(SyncMultiEnvTrainer):
     def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', return_type='nstep', total_steps=10000, nsteps=5, gamma=0.99, lambda_=0.95,
-                 validate_freq=1000000.0, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True):
+                 validate_freq=1000000.0, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True, gpu_growth=True):
         
         super().__init__(envs, model, file_loc, val_envs, train_mode=train_mode, return_type=return_type, total_steps=total_steps, nsteps=nsteps,
          gamma=gamma, lambda_=lambda_, validate_freq=validate_freq, save_freq=save_freq, render_freq=render_freq, update_target_freq=0,
-         num_val_episodes=num_val_episodes, log_scalars=log_scalars)
+         num_val_episodes=num_val_episodes, log_scalars=log_scalars, gpu_growth=gpu_growth)
         
         self.runner = self.Runner(self.model,self.env,self.nsteps)
 
@@ -172,7 +172,7 @@ class A2C(SyncMultiEnvTrainer):
 def main(env_id):
     
     num_envs = 32
-    nsteps = 20
+    nsteps = 5
     
     train_log_dir = 'logs/A2C/' + env_id +'/'
     model_dir = "models/A2C/" + env_id + '/'
@@ -228,14 +228,15 @@ def main(env_id):
               file_loc = [model_dir, train_log_dir],
               val_envs = val_envs,
               train_mode = 'nstep',
-              return_type = 'GAE',
+              return_type = 'nstep',
               total_steps = 50e6,
               nsteps = nsteps,
               validate_freq = 1e6,
               save_freq = 0,
               render_freq = 0,
               num_val_episodes = 50,
-              log_scalars = True)
+              log_scalars = True,
+              gpu_growth = False)
 
     a2c.train()
 
@@ -244,8 +245,9 @@ def main(env_id):
     tf.reset_default_graph()
 
 if __name__ == "__main__":
-    env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
+    #env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
+    env_id_list = ['MontezumaRevengeDeterministic-v4']
     #env_id_list = ['CartPole-v1', 'MountainCar-v0', 'Acrobot-v1']
-    #for i in range(4):
-    for env_id in env_id_list:
-        main(env_id)
+    for i in range(3):
+        for env_id in env_id_list:
+            main(env_id)
