@@ -158,7 +158,8 @@ class UnrealA2C(object):
         self.auxiliary_loss = PC * pixel_loss + RP * reward_loss +  VR * replay_loss #
         self.loss = self.on_policy_loss + self.auxiliary_loss 
         
-        self.optimiser = tf.train.RMSPropOptimizer(lr, decay=0.9, epsilon=1e-5)
+        #self.optimiser = tf.train.RMSPropOptimizer(lr, decay=0.9, epsilon=1e-5)
+        self.optimiser = tf.train.AdamOptimizer(lr)
 
         weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name)
         grads = tf.gradients(self.loss, weights)
@@ -438,14 +439,6 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
                 env.close()  
 
 def main(env_id, Atari=True):
-
-
-    config = tf.ConfigProto() #GPU 
-    config.gpu_options.allow_growth=True #GPU
-    sess = tf.Session(config=config)
-
-    print('gpu aviabliable', tf.test.is_gpu_available())
-
     num_envs = 32
     nsteps = 20
 
@@ -486,7 +479,7 @@ def main(env_id, Atari=True):
     model = UnrealA2C(nature_cnn,
                       input_shape = input_size,
                       action_size = action_size,
-                      PC=0.01,
+                      PC=1,
                       entropy_coeff=0.001,
                       lr=1e-3,
                       lr_final=1e-3,
@@ -522,8 +515,9 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
-    env_id_list = [ 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4','MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4' ]
+    env_id_list = ['FreewayDeterministic-v4']#, 'SpaceInvadersDeterministic-v4', 'MontezumaRevengeDeterministic-v4'  'PongDeterministic-v4' ]
     #env_id_list = ['MountainCar-v0','CartPole-v1']
-    for env_id in env_id_list:
-        main(env_id)
+    for i in range(3):
+        for env_id in env_id_list:
+            main(env_id)
     
