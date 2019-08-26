@@ -7,6 +7,8 @@ from rlib.networks.networks import *
 from rlib.utils.VecEnv import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 
+os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
+
 class PPO(object):
     def __init__(self, model, input_shape, action_size, lr=1e-3, lr_final=0, decay_steps=6e5, grad_clip=0.5, value_coeff=1.0, entropy_coeff=0.01, name='PPO', **model_args):
         self.lr, self.lr_final = lr, lr_final
@@ -230,8 +232,7 @@ def main(env_id, Atari=True):
     
     ac_mlp_args = {'dense_size':64}
 
-    with tf.device('/device:GPU:1'):
-        model = PPO(nature_cnn,
+    model = PPO(nature_cnn,
                 input_shape = input_size,
                 action_size = action_size,
                 lr=1e-4,
