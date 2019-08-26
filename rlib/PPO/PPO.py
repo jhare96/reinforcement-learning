@@ -230,7 +230,8 @@ def main(env_id, Atari=True):
     
     ac_mlp_args = {'dense_size':64}
 
-    model = PPO(nature_cnn,
+    with tf.device('/device:GPU:1'):
+        model = PPO(nature_cnn,
                 input_shape = input_size,
                 action_size = action_size,
                 lr=1e-4,
