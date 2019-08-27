@@ -272,7 +272,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
         s = 0
         rolling = RunningMeanStd(shape=())
         self.state_rolling = rolling_obs(shape=())
-        self.init_state_obs(128*3)
+        self.init_state_obs(128*50)
         self.runner.states = self.env.reset()
         forward_filter = RewardForwardFilter(self.gamma)
 
