@@ -10,7 +10,7 @@ from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.VecEnv import*
 from rlib.utils.utils import fold_batch, one_hot, rolling_stats, stack_many, RunningMeanStd
 
-os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
+#os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 
 class rolling_obs(object):
     def __init__(self, shape=()):
@@ -203,10 +203,13 @@ class RND(object):
 
 class RND_Trainer(SyncMultiEnvTrainer):
     def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', total_steps=1000000, nsteps=5, num_epochs=4, num_minibatches=4, validate_freq=1000000.0,
-                 save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True):
+                 save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True, gpu_growth=True):
         
         super().__init__(envs, model, file_loc, val_envs, train_mode=train_mode, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
-                            save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars)
+                            save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars,
+                            gpu_growth=gpu_growth)
+
+
         self.runner = self.Runner(self.model, self.env, self.nsteps)
         self.alpha = 1
         self.pred_prob = 1 / (self.num_envs / 32.0)
@@ -272,7 +275,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
         s = 0
         rolling = RunningMeanStd(shape=())
         self.state_rolling = rolling_obs(shape=())
-        self.init_state_obs(128*50)
+        self.init_state_obs(128*50*4)
         self.runner.states = self.env.reset()
         forward_filter = RewardForwardFilter(self.gamma)
 
@@ -437,7 +440,8 @@ def main(env_id, Atari=True):
                             save_freq = 0,
                             render_freq = 0,
                             num_val_episodes = 50,
-                            log_scalars=True)
+                            log_scalars=True,
+                            gpu_growth=False)
     curiosity.train()
     
     del curiosity
