@@ -268,7 +268,7 @@ class SyncMultiEnvTrainer(object):
         t = attrs.pop('t')
         time = attrs.pop('current_time') 
         print(attrs)
-        trainer = Class(envs=envs, model=model, val_envs=val_envs, **attrs)
+        trainer = Class(envs=envs, model=model, val_envs=val_envs, log_scalars=log_scalars, gpu_growth=allow_gpu_growth, **attrs)
         if continue_train:
             trainer.s = s
             trainer.t = t

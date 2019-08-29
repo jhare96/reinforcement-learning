@@ -181,13 +181,14 @@ class UnrealA2C(object):
         
 
         self.on_policy_loss = self.train_policy.loss
-        self.auxiliary_loss = PC * pixel_loss + RP * reward_loss +  VR * replay_loss 
+        self.auxiliary_loss = PC * pixel_loss +  RP * reward_loss +  VR * replay_loss 
         self.loss = self.on_policy_loss + self.auxiliary_loss 
         
         
         #global_step = tf.Variable(0, trainable=False)
         #lr = tf.train.polynomial_decay(lr, global_step, decay_steps, end_learning_rate=lr_final, power=1.0, cycle=False, name=None)
-        self.optimiser = tf.train.RMSPropOptimizer(lr, decay=0.9, epsilon=1e-5)
+        #self.optimiser = tf.train.RMSPropOptimizer(lr, decay=0.9, epsilon=1e-5)
+        self.optimiser = tf.train.AdamOptimizer(lr)
 
         # weights = self.train_policy.weights
         # grads = tf.gradients(self.on_policy_loss, weights)
@@ -281,8 +282,8 @@ class UnrealA2C(object):
 
 
 class Unreal_Trainer(SyncMultiEnvTrainer):
-    def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', total_steps=1000000, nsteps=5, validate_freq=1000000, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True):
-        super().__init__(envs, model, file_loc, val_envs, train_mode=train_mode, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
+    def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', model_dir='models/', total_steps=1000000, nsteps=5, validate_freq=1000000, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True):
+        super().__init__(envs, model, val_envs, train_mode=train_mode, log_dir=log_dir, model_dir=model_dir, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
                             save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars)
         
         self.replay = deque([], maxlen=2000)
@@ -292,11 +293,11 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
                   'total_steps':self.total_steps, 'entropy_coefficient':model.entropy_coeff, 'value_coefficient':0.5}
         
         if log_scalars:
-            filename = file_loc[1] + self.current_time + '/hyperparameters.txt'
+            filename = log_dir + self.current_time + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
     
     def populate_memory(self):
-        for t in range(2):
+        for t in range(2000//self.nsteps):
             self.runner.run()
     
     def auxiliary_target(self, prev_state, states, values, dones):
@@ -319,13 +320,16 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
         return R
 
     def sample_replay(self):
-        sample_start = np.random.randint(0, len(self.replay) -21)
+        sample_start = np.random.randint(0, len(self.replay) -self.nsteps -2)
         worker = np.random.randint(0,self.num_envs) # randomly sample from one of n workers
         if self.replay[sample_start][6][worker] == True:
             sample_start += 2
         replay_sample = []
         for i in range(sample_start, sample_start+self.nsteps):
             replay_sample.append(self.replay[i])
+            if self.replay[sample_start][6][worker] == True:
+                break
+                
         replay_states = np.stack([replay_sample[i][0][worker] for i in range(len(replay_sample))])
         replay_actions = np.stack([replay_sample[i][1][worker] for i in range(len(replay_sample))])
         replay_rewards = np.stack([replay_sample[i][2][worker] for i in range(len(replay_sample))])
@@ -333,16 +337,16 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
         replay_actsrews = np.stack([replay_sample[i][4][worker] for i in range(len(replay_sample))])
         replay_Qauxs = np.stack([replay_sample[i][5][worker] for i in range(len(replay_sample))])
         replay_dones = np.stack([replay_sample[i][6][worker] for i in range(len(replay_sample))])
-        #print('replay_hiddens dones shape', replay_hiddens.shape)
+        #print('replay_hiddens dones shape', replay_dones.shape)
         
         next_state = self.replay[sample_start+self.nsteps][0][worker][np.newaxis] # get state 
         _, replay_values, *_ = self.model.forward(next_state, replay_hiddens[-1,:,worker].reshape(2,1,-1), replay_actsrews[-1][np.newaxis,np.newaxis], validate=True)
         replay_R = self.nstep_return(replay_rewards, replay_values, replay_dones)
 
         prev_states = self.replay[sample_start-1][0][worker]
-        Qaux_value = self.model.get_pixel_control(next_state, replay_hiddens[-1,:,worker].reshape(2,1,-1), replay_actsrews[-1][np.newaxis,np.newaxis])
+        Qaux_value = self.model.get_pixel_control(next_state, replay_hiddens[-1,:,worker].reshape(2,1,-1), replay_actsrews[-1][np.newaxis,np.newaxis])[0]
         #print('Qaux_value shape', Qaux_value.shape)
-        Qaux_target = self.auxiliary_target(prev_states, replay_states, np.max(Qaux_value, axis=-1)[0], replay_dones)
+        Qaux_target = self.auxiliary_target(prev_states, replay_states, np.max(Qaux_value, axis=-1), replay_dones)
         #print('Qaux target shape', Qaux_target.shape)
         
         return replay_states, replay_actions, replay_R, Qaux_target, \
@@ -379,8 +383,9 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
         return reward_states, reward
     
     def _train_nstep(self):
+        batch_size = (self.num_envs * self.nsteps)
         start = time.time()
-        num_updates = self.total_steps // (self.num_envs * self.nsteps)
+        num_updates = self.total_steps // batch_size
         s = 0
         #self.validate(self.val_envs[0], 1, 1000)
         self.populate_memory()
@@ -398,18 +403,18 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
             l = self.model.backprop(states, R, actions, hidden_batch[0], dones, prev_acts_rewards,
                 reward_states, sample_rewards, Qaux_target, replay_actions, replay_states, replay_R, replay_hiddens[0], replay_dones, replay_actsrews)
             
-            if self.render_freq > 0 and t % (self.validate_freq * self.render_freq) == 0:
+            if self.render_freq > 0 and t % ((self.validate_freq // batch_size) * self.render_freq) == 0:
                 render = True
             else:
                 render = False
      
-            if self.validate_freq > 0 and t % self.validate_freq == 0:
+            if self.validate_freq > 0 and t % (self.validate_freq //batch_size) == 0:
                 self.validation_summary(t,l,start,render)
                 start = time.time()
             
-            if self.save_freq > 0 and  t % self.save_freq == 0:
+            if self.save_freq > 0 and  t % (self.save_freq // batch_size) == 0:
                 s += 1
-                self.saver.save(self.sess, str(self.model_dir + self.current_time + '/' + str(s) + ".ckpt") )
+                self.saver.save(self.sess, str(self.model_dir + '/' + str(s) + ".ckpt") )
                 print('saved model')
 
 
@@ -479,12 +484,6 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
                 env.close()  
 
 def main(env_id, Atari=True):
-
-
-    config = tf.ConfigProto() #GPU 
-    config.gpu_options.allow_growth=True #GPU
-    sess = tf.Session(config=config)
-
     print('gpu aviabliable', tf.test.is_gpu_available())
 
     num_envs = 32
@@ -509,7 +508,7 @@ def main(env_id, Atari=True):
             reset = False
             print('only stack frames')
         
-        val_envs = [AtariEnv_(gym.make(env_id), k=1, episodic=False, reset=reset, clip_reward=False) for i in range(16)]
+        val_envs = [AtariEnv_(gym.make(env_id), k=1, episodic=False, reset=reset, clip_reward=False) for i in range(1)]
         envs = BatchEnv(AtariEnv_, env_id, num_envs, blocking=False, k=1, reset=reset, episodic=True, clip_reward=True, time_limit=4500)
         
     
@@ -541,7 +540,8 @@ def main(env_id, Atari=True):
 
     auxiliary = Unreal_Trainer(envs = envs,
                                   model = model,
-                                  file_loc = [model_dir, train_log_dir],
+                                  model_dir=model_dir,
+                                  log_dir=train_log_dir,
                                   val_envs = val_envs,
                                   train_mode = 'nstep',
                                   total_steps = 50e6,
@@ -564,7 +564,7 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
-    env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4']#, 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4' ]
+    env_id_list = ['PrivateEyeDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'SpaceInvadersDeterministic-v4', 'PongDeterministic-v4' ]
     #env_id_list = ['MountainCar-v0','CartPole-v1']
     for env_id in env_id_list:
         main(env_id)

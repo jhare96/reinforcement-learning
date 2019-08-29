@@ -13,11 +13,7 @@ from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import fold_batch, stack_many
 
 
-
-#os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-#tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
-
-main_lock = threading.Lock()
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
 class ActorCritic(object):
     def __init__(self, model, input_shape, action_size, lr=1e-3, lr_final=0, decay_steps=80e3, grad_clip=0.5, **model_args):
@@ -51,8 +47,8 @@ class ActorCritic(object):
             entropy = tf.reduce_mean(tf.reduce_sum(self.policy_distrib * -log_policy, axis=1))
     
         
-        global_step = tf.Variable(0, trainable=False)
-        lr = tf.train.polynomial_decay(lr, global_step, decay_steps, end_learning_rate=lr_final, power=1.0, cycle=False, name=None)
+        #global_step = tf.Variable(0, trainable=False)
+        #lr = tf.train.polynomial_decay(lr, global_step, decay_steps, end_learning_rate=lr_final, power=1.0, cycle=False, name=None)
 
         
         
@@ -64,7 +60,7 @@ class ActorCritic(object):
         grads = tf.gradients(self.loss, self.weights)
         grads, _ = tf.clip_by_global_norm(grads, grad_clip)
         grads_vars = list(zip(grads, self.weights))
-        self.optimiser = optimiser.apply_gradients(grads_vars, global_step=global_step)
+        self.optimiser = optimiser.apply_gradients(grads_vars)
 
     def forward(self, state):
         return self.sess.run([self.policy_distrib, self.V], feed_dict = {self.state:state})
@@ -88,11 +84,11 @@ class ActorCritic(object):
                     # validate_freq=1e6, save_freq=0, render_freq=0, update_target_freq = 10000)
 
 class A2C(SyncMultiEnvTrainer):
-    def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', return_type='nstep', total_steps=10000, nsteps=5, gamma=0.99, lambda_=0.95,
-                 validate_freq=1000000.0, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True, gpu_growth=True):
+    def __init__(self, envs, model, val_envs, train_mode='nstep', return_type='nstep', log_dir='logs/', model_dir='models/', total_steps=10000, nsteps=5, gamma=0.99, lambda_=0.95,
+                 validate_freq=1e6, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True, gpu_growth=True):
         
-        super().__init__(envs, model, file_loc, val_envs, train_mode=train_mode, return_type=return_type, total_steps=total_steps, nsteps=nsteps,
-         gamma=gamma, lambda_=lambda_, validate_freq=validate_freq, save_freq=save_freq, render_freq=render_freq, update_target_freq=0,
+        super().__init__(envs, model, val_envs, log_dir=log_dir, model_dir=model_dir, train_mode=train_mode, return_type=return_type, total_steps=total_steps, nsteps=nsteps,
+         gamma=gamma, lambda_=lambda_, validate_freq=validate_freq, save_freq=save_freq, render_freq=render_freq,
          num_val_episodes=num_val_episodes, log_scalars=log_scalars, gpu_growth=gpu_growth)
         
         self.runner = self.Runner(self.model,self.env,self.nsteps)
@@ -101,7 +97,7 @@ class A2C(SyncMultiEnvTrainer):
                   'total_steps':total_steps, 'entropy_coefficient':0.01, 'value_coefficient':0.5 , 'return type':self.return_type}
         
         if log_scalars:
-            filename = file_loc[1] + self.current_time + '/' + 'hyperparameters.txt'
+            filename = log_dir + '/' + 'hyperparameters.txt'
             self.save_hyperparameters(filename , **hyperparas)
 
     class Runner(SyncMultiEnvTrainer.Runner):
@@ -172,10 +168,12 @@ class A2C(SyncMultiEnvTrainer):
 def main(env_id):
     
     num_envs = 32
-    nsteps = 5
+    nsteps = 20
     
-    train_log_dir = 'logs/A2C/' + env_id +'/'
-    model_dir = "models/A2C/" + env_id + '/'
+    current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
+
+    train_log_dir = 'logs/A2C/' + env_id +'/n-step/' + current_time 
+    model_dir = "models/A2C/" + env_id + '/n-step/' + current_time 
     
     env = gym.make(env_id)
     action_size = env.action_space.n
@@ -200,7 +198,7 @@ def main(env_id):
             print('only stack frames')
         
         val_envs = [AtariEnv(gym.make(env_id), k=4, episodic=False, reset=reset, clip_reward=False) for i in range(16)]
-        envs = BatchEnv(AtariEnv, env_id, num_envs, blocking=False , k=4, reset=reset, episodic=False, clip_reward=True)
+        envs = BatchEnv(AtariEnv, env_id, num_envs, blocking=False, k=4, reset=reset, episodic=False, clip_reward=True)
     
     action_size = val_envs[0].action_space.n
     input_size = val_envs[0].reset().shape
@@ -225,29 +223,34 @@ def main(env_id):
 
     a2c = A2C(envs = envs,
               model = model,
-              file_loc = [model_dir, train_log_dir],
+              model_dir = model_dir,
+              log_dir = train_log_dir,
               val_envs = val_envs,
               train_mode = 'nstep',
               return_type = 'nstep',
-              total_steps = 50e6,
+              total_steps = 2e6,
               nsteps = nsteps,
-              validate_freq = 1e6,
+              validate_freq = 1e5,
               save_freq = 0,
               render_freq = 0,
               num_val_episodes = 50,
-              log_scalars = True,
-              gpu_growth = False)
+              log_scalars = False,
+              gpu_growth = True)
 
     a2c.train()
 
     del a2c
 
-    tf.reset_default_graph()
+    #tf.reset_default_graph()
+
+    # a2c = A2C.load(A2C, model, envs, val_envs, model_dir + time + '/1.trainer')
+    # a2c.train()
+
 
 if __name__ == "__main__":
-    #env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
-    env_id_list = ['MontezumaRevengeDeterministic-v4']
-    #env_id_list = ['CartPole-v1', 'MountainCar-v0', 'Acrobot-v1']
-    for i in range(3):
+    env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
+    #env_id_list = ['MontezumaRevengeDeterministic-v4']
+    #env_id_list = ['CartPole-v1',]# 'MountainCar-v0', 'Acrobot-v1']
+    for i in range(1):
         for env_id in env_id_list:
             main(env_id)

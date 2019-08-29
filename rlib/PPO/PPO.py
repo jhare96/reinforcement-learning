@@ -1,13 +1,13 @@
 import tensorflow as tf
 import numpy as np
-import time
+import time, datetime
 import gym
 
 from rlib.networks.networks import *
 from rlib.utils.VecEnv import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 
-os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
+#os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 
 class PPO(object):
     def __init__(self, model, input_shape, action_size, lr=1e-3, lr_final=0, decay_steps=6e5, grad_clip=0.5, value_coeff=1.0, entropy_coeff=0.01, name='PPO', **model_args):
@@ -89,10 +89,10 @@ class PPO(object):
 
 
 class PPO_Trainer(SyncMultiEnvTrainer):
-    def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', total_steps=1000000, nsteps=5, num_epochs=4, num_minibatches=4,
+    def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', model_dir='models/', total_steps=1000000, nsteps=5, num_epochs=4, num_minibatches=4,
                  validate_freq=1000000.0, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True, gpu_growth=True):
         
-        super().__init__(envs, model, file_loc, val_envs, train_mode=train_mode, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
+        super().__init__(envs, model, val_envs, train_mode=train_mode, log_dir=log_dir, model_dir=model_dir, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
                             save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars,
                             gpu_growth=gpu_growth)
 
@@ -108,17 +108,17 @@ class PPO_Trainer(SyncMultiEnvTrainer):
             'entropy_coefficient':0.01, 'value_coefficient':1.0}
         
         if log_scalars:
-            filename = file_loc[1] + self.current_time + '/hyperparameters.txt'
+            filename = log_dir + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
     
     
     
     def _train_nstep(self):
-       
-        num_updates = self.total_steps // (self.num_envs * self.nsteps)
+        batch_size = self.num_envs * self.nsteps
+        num_updates = self.total_steps // batch_size
         alpha_step = 1/num_updates
         s = 0
-        batch_size = self.nsteps//self.num_minibatches
+        mini_batch_size = self.nsteps//self.num_minibatches
         start = time.time()
         # main loop
         for t in range(1,num_updates+1):
@@ -129,8 +129,8 @@ class PPO_Trainer(SyncMultiEnvTrainer):
             idxs = np.arange(len(states))
             for epoch in range(self.num_epochs):
                 np.random.shuffle(idxs)
-                for batch in range(0,len(states),batch_size):
-                    batch_idxs = idxs[batch:batch+batch_size]
+                for batch in range(0,len(states), mini_batch_size):
+                    batch_idxs = idxs[batch:batch + mini_batch_size]
                     # stack all states, actions and Rs across all workers into a single batch
                     mb_states, mb_actions, mb_R, mb_Adv, mb_old_policies = fold_batch(states[batch_idxs]), \
                                                     fold_batch(actions[batch_idxs]), fold_batch(R[batch_idxs]), \
@@ -142,18 +142,18 @@ class PPO_Trainer(SyncMultiEnvTrainer):
            
             #self.alpha -= alpha_step
             
-            if self.render_freq > 0 and t % (self.validate_freq * self.render_freq) == 0:
+            if self.render_freq > 0 and t % ((self.validate_freq  // batch_size) * self.render_freq) == 0:
                 render = True
             else:
                 render = False
         
-            if self.validate_freq > 0 and t % self.validate_freq == 0:
+            if self.validate_freq > 0 and t % (self.validate_freq // batch_size) == 0:
                 self.validation_summary(t,l,start,render)
                 start = time.time()
             
-            if self.save_freq > 0 and  t % self.save_freq == 0:
+            if self.save_freq > 0 and  t % (self.save_freq // batch_size) == 0:
                 s += 1
-                self.saver.save(self.sess, str(self.model_dir + self.current_time + '/' + str(s) + ".ckpt") )
+                self.saver.save(self.sess, str(self.model_dir + '/' + str(s) + ".ckpt") )
                 print('saved model')
             
     
@@ -217,9 +217,9 @@ def main(env_id, Atari=True):
     
     
 
-    train_log_dir = 'logs/PPO/' +env_id + '/'
-    model_dir = "models/PPO/" + env_id + '/'
-
+    current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
+    train_log_dir = 'logs/RND/' + env_id + '/' + current_time
+    model_dir = "models/RND/" + env_id + '/' + current_time
     
 
     ac_cnn_args = {'conv1_size':32, 'conv2_size':64, 'conv3_size':64, 'dense_size':512}
@@ -232,6 +232,7 @@ def main(env_id, Atari=True):
     
     ac_mlp_args = {'dense_size':64}
 
+    
     model = PPO(nature_cnn,
                 input_shape = input_size,
                 action_size = action_size,
@@ -246,7 +247,8 @@ def main(env_id, Atari=True):
 
     curiosity = PPO_Trainer(envs = envs,
                             model = model,
-                            file_loc = [model_dir, train_log_dir],
+                            model_dir = model_dir,
+                            log_dir = train_log_dir,
                             val_envs = val_envs,
                             train_mode = 'nstep',
                             total_steps = 50e6,
@@ -267,7 +269,7 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
-    env_id_list = ['SpaceInvadersDeterministic-v4',]# 'SpaceInvadersDeterministic-v4',]# 'FreewayDeterministic-v4', ]
+    env_id_list = ['FreewayDeterministic-v4']# 'SpaceInvadersDeterministic-v4',]# , ]
     #env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v1' ]
     #for i in range(5):
     for env_id in env_id_list:

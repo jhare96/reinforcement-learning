@@ -56,13 +56,12 @@ class PPO(object):
                 self.Vi = tf.reshape(mlp_layer(self.dense, 1, name='intr_value', activation=None), shape=[-1])
             
             with tf.variable_scope("actor"):
-                self.policy_distrib = mlp_layer(self.dense, action_size, activation=tf.nn.softmax, name='policy_distribution')
+                self.policy_distrib = mlp_layer(self.dense, action_size, activation=tf.nn.softmax, name='policy_distribution') + 1e-10
                 self.actions = tf.placeholder(tf.int32, [None])
                 actions_onehot = tf.one_hot(self.actions,action_size)
                 
             with tf.variable_scope('losses'):
-                self.old_policy = tf.placeholder(dtype=tf.float32, shape=[None, action_size], name='old_policies') + 1e-10
-                self.alpha = tf.placeholder(dtype=tf.float32, shape=[], name='alpha')
+                self.old_policy = tf.placeholder(dtype=tf.float32, shape=[None, action_size], name='old_policies')
                 self.R_extr = tf.placeholder(dtype=tf.float32, shape=[None])
                 self.R_intr = tf.placeholder(dtype=tf.float32, shape=[None])
 
@@ -254,11 +253,11 @@ class RND_Trainer(SyncMultiEnvTrainer):
     
     def init_state_obs(self, num_steps):
         states = []
-        for i in range(num_steps):
+        for i in range(1,num_steps+1):
             rand_actions = np.random.randint(0, self.model.action_size, size=self.num_envs)
             next_states, rewards, dones, infos = self.env.step(rand_actions)
             states.append(next_states)
-            if i % self.nsteps == 0 and i > 0:
+            if i % self.nsteps == 0:
                 self.runner.state_mean, self.runner.state_std = self.state_rolling.update(np.stack(states))
                 states = []
     
@@ -277,7 +276,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
         obs = self.runner.states[0]
         obs = obs[...,-1:] if len(obs.shape) == 3 else obs
         self.state_rolling = rolling_obs(shape=obs.shape)
-        self.init_state_obs(10000//self.num_envs)
+        self.init_state_obs(128*50)
         self.runner.states = self.env.reset()
         forward_filter = RewardForwardFilter(self.gamma)
 
@@ -351,7 +350,6 @@ class RND_Trainer(SyncMultiEnvTrainer):
             rollout = []
             for t in range(self.num_steps):
                 policies, values_extr, values_intr = self.model.forward(self.states)
-                #actions = np.argmax(policies, axis=1)
                 actions = [np.random.choice(policies.shape[1], p=policies[i]) for i in range(policies.shape[0])]
                 next_states, extr_rewards, dones, infos = self.env.step(actions)
     
@@ -368,7 +366,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
 
 
 def main(env_id, Atari=True):
-    num_envs = 128
+    num_envs = 32
     nsteps = 128
 
     env = gym.make(env_id)
@@ -452,7 +450,7 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
-    #os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+    os.environ["CUDA_VISIBLE_DEVICES"] = '1'
     env_id_list = ['MontezumaRevengeDeterministic-v4',]# 'SpaceInvadersDeterministic-v4','FreewayDeterministic-v4']
     #env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v1' ]
     for i in range(1):

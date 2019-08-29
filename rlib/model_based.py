@@ -211,7 +211,7 @@ class SyncDDQN(SyncMultiEnvTrainer):
             pred_Qsa = self.target_model.sample_Q(pred_states[-1,0][np.newaxis]) # Q(s,a; theta-1)
             actions_one_hot = one_hot(pred_actions[-1], self.action_size)
             pred_values = np.sum(pred_Qsa * actions_one_hot, axis=1) # Q(s, argmax_a Q(s,a; theta); theta-1)
-            imagined_R = self.multistep_target(pred_rewards, pred_values, np.zeros((self.look_ahead)))
+            imagined_R = self.nstep_return(pred_rewards, pred_values, np.zeros((self.look_ahead)))
             
             Q2loss = self.model.backprop(pred_states[:,0], imagined_R[:,0], pred_actions[:,0])
             

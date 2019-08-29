@@ -225,13 +225,13 @@ def nips_cnn(input, conv1_size=16 ,conv2_size=32, dense_size=256, padding='VALID
     dense = mlp_layer(fc, dense_size, activation=tf.nn.relu)
     return dense
 
-def nature_cnn(input, conv1_size=32 ,conv2_size=64, conv3_size=64, dense_size=512, padding='VALID', activation=tf.nn.relu, scale=True, trainable=True):
+def nature_cnn(input, conv1_size=32 ,conv2_size=64, conv3_size=64, dense_size=512, padding='VALID', conv_activation=tf.nn.relu, dense_activation=tf.nn.relu, weight_initialiser=tf.initializers.glorot_uniform, scale=True, trainable=True):
     x = input/255 if scale else input
-    h1 = conv2d(x,  output_channels=conv1_size, kernel_size=[8,8],  strides=[4,4], padding=padding, activation=activation, dtype=tf.float32, name='conv_1', trainable=trainable)
-    h2 = conv2d(h1, output_channels=conv2_size, kernel_size=[4,4],  strides=[2,2], padding=padding, activation=activation, dtype=tf.float32, name='conv_2', trainable=trainable)
-    h3 = conv2d(h2, output_channels=conv3_size, kernel_size=[3,3],  strides=[1,1], padding=padding, activation=activation, dtype=tf.float32, name='conv_3', trainable=trainable)
+    h1 = conv2d(x,  output_channels=conv1_size, kernel_size=[8,8],  strides=[4,4], padding=padding, activation=conv_activation, kernel_initialiser=weight_initialiser, dtype=tf.float32, name='conv_1', trainable=trainable)
+    h2 = conv2d(h1, output_channels=conv2_size, kernel_size=[4,4],  strides=[2,2], padding=padding, activation=conv_activation, kernel_initialiser=weight_initialiser, dtype=tf.float32, name='conv_2', trainable=trainable)
+    h3 = conv2d(h2, output_channels=conv3_size, kernel_size=[3,3],  strides=[1,1], padding=padding, activation=conv_activation, kernel_initialiser=weight_initialiser, dtype=tf.float32, name='conv_3', trainable=trainable)
     fc = flatten(h3)
-    dense = mlp_layer(fc, dense_size, activation=activation, trainable=trainable)
+    dense = mlp_layer(fc, dense_size, activation=dense_activation, weight_initialiser=weight_initialiser, trainable=trainable)
     return dense
 
 def nature_deconv(input):

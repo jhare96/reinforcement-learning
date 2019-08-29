@@ -78,13 +78,13 @@ class DQN(object):
 class SyncDDQN(SyncMultiEnvTrainer):
     def __init__(self, envs, model, target_model, file_loc, val_envs, action_size,
                      train_mode='nstep', return_type='nstep', total_steps=1000000, nsteps=5, gamma=0.99, lambda_=0.6,
-                     validate_freq=1e6, save_freq=0, render_freq=0, update_target_freq=10000, num_val_episodes=50, log_scalars=True,
+                     validate_freq=1e6, save_freq=0, render_freq=0, update_target_freq=10000, num_val_episodes=50, log_scalars=True, gpu_growth=True,
                      epsilon_start=1, epsilon_final=0.01, epsilon_steps = 1e6, epsilon_test=0.01):
 
         
         super().__init__(envs=envs, model=model, file_loc=file_loc, val_envs=val_envs, train_mode=train_mode, return_type=return_type, total_steps=total_steps,
                 nsteps=nsteps, gamma=gamma, lambda_=lambda_, validate_freq=validate_freq, save_freq=save_freq, render_freq=render_freq,
-                update_target_freq=update_target_freq, num_val_episodes=num_val_episodes, log_scalars=log_scalars)
+                update_target_freq=update_target_freq, num_val_episodes=num_val_episodes, log_scalars=log_scalars, gpu_growth=gpu_growth)
         
         self.target_model = target_model
         self.epsilon = np.array([epsilon_start], dtype=np.float64)
@@ -125,8 +125,10 @@ class SyncDDQN(SyncMultiEnvTrainer):
     def update_target(self):
         self.sess.run(self.update_weights)
 
-            
-
+    
+    def local_attr(self, attr):
+        attr['update_target_freq':self.target_freq]
+        return attr
     
     class Runner(object):
         def __init__(self, Q, TargetQ, epsilon, epsilon_schedule, env, num_envs, num_steps, action_size):
@@ -190,7 +192,7 @@ def main(env_id):
     num_envs = 32
     nsteps = 20
 
-    train_log_dir = 'logs/SyncDoubleDQN/' + env_id + '/eligible/'
+    train_log_dir = 'logs/SyncDoubleDQN/' + env_id + '/lambda/'
     model_dir = "models/SyncDoubleDQN/" + env_id + '/'
 
     env = gym.make(env_id)
@@ -259,7 +261,7 @@ def main(env_id):
     tf.reset_default_graph()
 
 if __name__ == "__main__":
-    #env_id_list = [ 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4']#'MontezumaRevengeDeterministic-v4', ]
+    #env_id_list = [ 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4',]# 'MontezumaRevengeDeterministic-v4', ]
     env_id_list = ['MontezumaRevengeDeterministic-v4']
     #env_id_list = ['MountainCar-v0', 'Acrobot-v1', ]
     for i in range(1):

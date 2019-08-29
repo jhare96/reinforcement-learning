@@ -177,9 +177,12 @@ class RND(object):
 
 
 class RND_Trainer(SyncMultiEnvTrainer):
-    def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', model_dir='models/', total_steps=1000000, nsteps=5, validate_freq=1000000.0, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True):
+    def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', model_dir='models/', total_steps=1000000,
+    nsteps=5, validate_freq=1000000.0, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True, gpu_growth=True):
+        
+        
         super().__init__(envs, model, val_envs, train_mode=train_mode, log_dir=log_dir, model_dir=model_dir, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
-                            save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes,log_scalars=log_scalars)
+                            save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes,log_scalars=log_scalars,gpu_growth=gpu_growth)
         self.runner = self.Runner(self.model, self.env, self.nsteps)
         
         hyper_paras = {'learning_rate':model.lr, 'learning_rate_final':model.lr_final, 'lr_decay_steps':model.decay_steps,
@@ -367,7 +370,8 @@ def main(env_id, Atari=True):
                             save_freq = 0,
                             render_freq = 0,
                             num_val_episodes = 50,
-                            log_scalars=True)
+                            log_scalars=True,
+                            gpu_growth=True)
     print(env_id)
     curiosity.train()
 
