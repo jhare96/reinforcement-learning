@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import scipy
 import gym
-import os, time
+import os, time, datetime
 import threading
 from rlib.A2C.A2C import ActorCritic
 from rlib.networks.networks import*
@@ -132,9 +132,9 @@ def predictor_mlp(x, num_layers=2, dense_size=64, activation=tf.nn.leaky_relu, i
     return dense
 
 class RND(object):
-    def __init__(self, policy_model, target_model, input_shape, action_size, value_coeff=1.0, intr_coeff=0.5, extr_coeff=1.0, lr=1e-3, lr_final=0, decay_steps=6e5, grad_clip = 0.5, policy_args ={}, RND_args={}):
+    def __init__(self, policy_model, target_model, input_shape, action_size, value_coeff=1.0, intr_coeff=0.5, extr_coeff=1.0, lr=1e-4, decay_steps=6e5, grad_clip = 0.5, policy_args ={}, RND_args={}):
         self.intr_coeff, self.extr_coeff =  intr_coeff, extr_coeff
-        self.lr, self.lr_final, self.decay_steps = lr, lr_final, decay_steps
+        self.lr, self.decay_steps = lr, decay_steps
         self.grad_clip = grad_clip
         self.action_size = action_size
         self.sess = None
@@ -147,7 +147,7 @@ class RND(object):
         
 
         with tf.variable_scope('Policy', reuse=tf.AUTO_REUSE):
-            self.policy = PPO(policy_model, input_shape, action_size, value_coeff=value_coeff, intr_coeff=intr_coeff, extr_coeff=extr_coeff, lr=lr, lr_final=lr_final, decay_steps=decay_steps, grad_clip=grad_clip, **policy_args)
+            self.policy = PPO(policy_model, input_shape, action_size, value_coeff=value_coeff, intr_coeff=intr_coeff, extr_coeff=extr_coeff, lr=lr, **policy_args)
         
         if len(input_shape) == 3:
             next_state_shape = input_shape[:-1] + (1,)
@@ -202,10 +202,10 @@ class RND(object):
 
 
 class RND_Trainer(SyncMultiEnvTrainer):
-    def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', total_steps=1000000, nsteps=5, num_epochs=4, num_minibatches=4, validate_freq=1000000.0,
+    def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', model_dir='models/', total_steps=1000000, nsteps=5, num_epochs=4, num_minibatches=4, validate_freq=1000000.0,
                  save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True, gpu_growth=True):
         
-        super().__init__(envs, model, file_loc, val_envs, train_mode=train_mode, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
+        super().__init__(envs, model, val_envs, train_mode=train_mode, log_dir=log_dir, model_dir=model_dir, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
                             save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars,
                             gpu_growth=gpu_growth)
 
@@ -215,13 +215,13 @@ class RND_Trainer(SyncMultiEnvTrainer):
         self.pred_prob = 1 / (self.num_envs / 32.0)
         self.lambda_ = 0.95
         self.num_epochs, self.num_minibatches = num_epochs, num_minibatches
-        hyper_paras = {'learning_rate':model.lr, 'learning_rate_final':model.lr_final, 'lr_decay_steps':model.decay_steps,
+        hyper_paras = {'learning_rate':model.lr,
          'grad_clip':model.grad_clip, 'nsteps':self.nsteps, 'num_workers':self.num_envs, 'total_steps':self.total_steps,
           'entropy_coefficient':0.001, 'value_coefficient':0.5, 'intr_coeff':model.intr_coeff,
         'extr_coeff':model.extr_coeff}
         
         if log_scalars:
-            filename = file_loc[1] + self.current_time + '/hyperparameters.txt'
+            filename = log_dir + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
     
     def validate(self,env,num_ep,max_steps,render=False):
@@ -270,8 +270,8 @@ class RND_Trainer(SyncMultiEnvTrainer):
 
     
     def _train_nstep(self):
-        start = time.time()
-        num_updates = self.total_steps // (self.num_envs * self.nsteps)
+        batch_size = self.num_envs * self.nsteps
+        num_updates = self.total_steps // batch_size
         s = 0
         rolling = RunningMeanStd(shape=())
         self.state_rolling = rolling_obs(shape=())
@@ -280,6 +280,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
         forward_filter = RewardForwardFilter(self.gamma)
 
         # main loop
+        start = time.time()
         for t in range(1,num_updates+1):
             states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, old_policies, dones = self.runner.run()
             policy, extr_last_values, intr_last_values = self.model.forward(next_states[-1])
@@ -301,16 +302,16 @@ class RND_Trainer(SyncMultiEnvTrainer):
             l = 0
             idxs = np.arange(len(states))
             for epoch in range(self.num_epochs):
-                batch_size = self.nsteps//self.num_minibatches
+                mini_batch_size = self.nsteps//self.num_minibatches
                 np.random.shuffle(idxs)
-                for batch in range(0,len(states),batch_size):
-                    batch_idxs = idxs[batch:batch+batch_size]
+                for batch in range(0,len(states), mini_batch_size):
+                    batch_idxs = idxs[batch:batch + mini_batch_size]
                     # stack all states, next_states, actions and Rs across all workers into a single batch
                     mb_states, mb_nextstates, mb_actions, mb_Rextr, mb_Rintr, mb_Adv, mb_old_policies = fold_batch(states[batch_idxs]), fold_batch(next_states[batch_idxs]), \
                                                     fold_batch(actions[batch_idxs]), fold_batch(R_extr[batch_idxs]), fold_batch(R_intr[batch_idxs]), \
                                                     fold_batch(total_Adv[batch_idxs]), fold_batch(old_policies[batch_idxs])
                 
-                    mb_nextstates = mb_nextstates[np.where(np.random.uniform(size=(batch_size)) < self.pred_prob)]
+                    mb_nextstates = mb_nextstates[np.where(np.random.uniform(size=(mini_batch_size)) < self.pred_prob)]
                     mb_nextstates = mb_nextstates[...,-1:] if len(mb_nextstates.shape) == 4 else mb_nextstates
                     
                     mean, std = self.runner.state_mean, self.runner.state_std
@@ -318,18 +319,18 @@ class RND_Trainer(SyncMultiEnvTrainer):
             
             l /= (self.num_epochs * self.num_minibatches)
         
-            if self.render_freq > 0 and t % (self.validate_freq * self.render_freq) == 0:
+            if self.render_freq > 0 and t % (self.validate_freq // batch_size * self.render_freq) == 0:
                 render = True
             else:
                 render = False
      
-            if self.validate_freq > 0 and t % self.validate_freq == 0:
+            if self.validate_freq > 0 and t % (self.validate_freq // batch_size) == 0:
                 self.validation_summary(t,l,start,render)
                 start = time.time()
             
-            if self.save_freq > 0 and  t % self.save_freq == 0:
+            if self.save_freq > 0 and  t % (self.save_freq // batch_size) == 0:
                 s += 1
-                self.saver.save(self.sess, str(self.model_dir + self.current_time + '/' + str(s) + ".ckpt") )
+                self.saver.save(self.sess, str(self.model_dir + '/' + str(s) + ".ckpt") )
                 print('saved model')
             
     
@@ -394,9 +395,9 @@ def main(env_id, Atari=True):
     input_size = val_envs[0].reset().shape
     
     
-
-    train_log_dir = 'logs/RND/' + env_id + '/'
-    model_dir = "models/RND/" + env_id + '/'
+    current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
+    train_log_dir = 'logs/RND/' + env_id + '/' + current_time
+    model_dir = "models/RND/" + env_id + '/' + current_time
 
     
 
@@ -410,8 +411,8 @@ def main(env_id, Atari=True):
    
     ac_mlp_args = {'dense_size':64}
 
-
-    model = RND(nature_cnn,
+    with tf.device('GPU:3'):
+        model = RND(nature_cnn,
                 predictor_cnn,
                 input_shape = input_size,
                 action_size = action_size,
@@ -429,7 +430,8 @@ def main(env_id, Atari=True):
 
     curiosity = RND_Trainer(envs = envs,
                             model = model,
-                            file_loc = [model_dir, train_log_dir],
+                            model_dir = model_dir,
+                            log_dir = train_log_dir,
                             val_envs = val_envs,
                             train_mode = 'nstep',
                             total_steps = 50e6,
@@ -437,7 +439,7 @@ def main(env_id, Atari=True):
                             num_epochs=4,
                             num_minibatches=4,
                             validate_freq = 1e6,
-                            save_freq = 0,
+                            save_freq = 5e6,
                             render_freq = 0,
                             num_val_episodes = 50,
                             log_scalars=True,
@@ -450,6 +452,7 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
+    #os.environ["CUDA_VISIBLE_DEVICES"] = '1'
     env_id_list = ['MontezumaRevengeDeterministic-v4',]# 'SpaceInvadersDeterministic-v4','FreewayDeterministic-v4']
     #env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v1' ]
     for i in range(1):
