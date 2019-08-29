@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import scipy
 import gym
-import os, time
+import os, time, datetime
 import threading
 #from rlib.A2C.A2C import ActorCritic
 from rlib.networks.networks import*
@@ -320,9 +320,9 @@ def main(env_id, Atari=True):
     input_size = val_envs[0].reset().shape
     
     
-
-    train_log_dir = 'logs/RND_A2C/' + env_id + '/'
-    model_dir = "models/RND_A2C/" + env_id + '/'
+    current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
+    train_log_dir = 'logs/RND_A2C/' + env_id + '/' + current_time
+    model_dir = "models/RND_A2C/" + env_id + '/' + current_time
 
     
 
