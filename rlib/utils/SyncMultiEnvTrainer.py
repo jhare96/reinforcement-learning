@@ -3,14 +3,16 @@ import tensorflow as tf
 import threading
 import numpy as np
 import copy
+import json
 from abc import ABC, abstractmethod
 from rlib.utils.utils import fold_batch
 
 
 
+
 class SyncMultiEnvTrainer(object):
-    def __init__(self, envs, model, file_loc, val_envs, train_mode='nstep', return_type='nstep', total_steps=10000, nsteps=5, gamma=0.99, lambda_=0.95, 
-                     validate_freq=1e6, save_freq=0, render_freq=0, update_target_freq = 10000, num_val_episodes=50,
+    def __init__(self, envs, model, val_envs, train_mode='nstep', return_type='nstep', log_dir='logs/', model_dir='models/', total_steps=50e6, nsteps=5, gamma=0.99, lambda_=0.95, 
+                     validate_freq=1e6, save_freq=0, render_freq=0, update_target_freq=0, num_val_episodes=50,
                      log_scalars=True, gpu_growth=True):
         '''
             A synchronous multiple env training framework for tensorflow v.1 api 
@@ -18,7 +20,7 @@ class SyncMultiEnvTrainer(object):
             Args:
                 envs - BatchEnv method which runs multiple environements synchronously 
                 model - reinforcement learning model
-                file_loc - as list of strings for saving model and tensorboard results in order of [model_directory, train_log_dir]
+                log_dir, log directory string for location of directory to log scalars log_dir='logs/', model_dir='models/',
                 val_envs - a list of envs for validation 
                 train_mode - 'nstep' or 'onestep' species whether training is done using multiple step TD learning or single step 
                 total_steps - number of Total training steps across all environements
@@ -33,8 +35,8 @@ class SyncMultiEnvTrainer(object):
         if train_mode not in ['nstep', 'onestep']:
             raise ValueError('train_mode %s is not a valid argument. Valid arguments are ... %s, %s' %(train_mode,'nstep','onestep'))
         assert num_val_episodes >= len(val_envs), 'number of validation epsiodes {} must be greater than or equal to the number of validation envs {}'.format(num_val_episodes, len(val_envs))
-        if return_type.lower() not in ['nstep', 'lambda', 'gae']:
-            raise ValueError('return_type %s is not a valid argument. Valid arguments are ... %s, %s, %s' %(return_type, 'nstep', 'lambda', 'gae'))
+        if return_type not in ['nstep', 'lambda', 'GAE']:
+            raise ValueError('return_type %s is not a valid argument. Valid arguments are ... %s, %s, %s' %(return_type, 'nstep', 'lambda', 'GAE'))
         self.train_mode = train_mode
         self.num_envs = len(envs)
         self.env_id = envs.spec.id
@@ -51,24 +53,27 @@ class SyncMultiEnvTrainer(object):
     
         self.total_steps = int(total_steps)
         self.nsteps = nsteps
-        self.return_type = return_type.lower()
+        self.return_type = return_type
         self.gamma = gamma
         self.lambda_ = lambda_
 
-        self.validate_freq = int(validate_freq // (self.num_envs*self.nsteps))
+        self.validate_freq = int(validate_freq) 
         self.num_val_episodes = num_val_episodes
         self.lock = threading.Lock()
 
-        self.save_freq = save_freq//(self.num_envs*self.nsteps)
+        self.save_freq = int(save_freq) 
         self.render_freq = render_freq
-        self.target_freq = int(update_target_freq/(self.num_envs*self.nsteps))
+        self.target_freq = int(update_target_freq)
+        self.s = 0 # number of saves made
+        self.t = 1 # number of updates done
         self.log_scalars = log_scalars
-        self.model_dir, train_log_dir = file_loc
-        current_time = datetime.datetime.now().strftime("%y-%m-%d_%H-%M-%S")
+        self.log_dir = log_dir
+        self.model_dir = model_dir
+        
 
         if log_scalars:
             # Tensorboard Variables
-            train_log_dir = train_log_dir + current_time + '/train'
+            train_log_dir = self.log_dir  + '/train'
             
             tf_epLoss = tf.compat.v1.placeholder('float',name='epsiode_loss')
             tf_epReward =  tf.compat.v1.placeholder('float',name='episode_reward')
@@ -84,8 +89,6 @@ class SyncMultiEnvTrainer(object):
         self.saver = tf.train.Saver()
         init = tf.global_variables_initializer()
         self.sess.run(init)
-        
-        self.current_time = current_time
 
         if not os.path.exists(self.model_dir) and save_freq > 0:
             os.makedirs(self.model_dir)
@@ -108,14 +111,14 @@ class SyncMultiEnvTrainer(object):
             template for multi-step training loop for synchronous training over multiple environments
         '''
         start = time.time()
-        num_updates = self.total_steps // (self.num_envs * self.nsteps)
-        s = 0
+        batch_size = self.num_envs * self.nsteps
+        num_updates = self.total_steps // batch_size
         # main loop
-        for t in range(1,num_updates+1):
+        for t in range(self.t,num_updates+1):
             states, actions, rewards, dones, infos, values, last_values = self.runner.run()
             if self.return_type == 'nstep':
                 R = self.nstep_return(rewards, last_values, dones, gamma=self.gamma)
-            elif self.return_type == 'gae':
+            elif self.return_type == 'GAE':
                 R = self.GAE(rewards, values, last_values, dones, gamma=self.gamma, lambda_=self.lambda_) + values
             elif self.return_type == 'lambda':
                 R = self.lambda_return(rewards, values, last_values, dones, gamma=self.gamma, lambda_=self.lambda_, clip=False)
@@ -123,23 +126,24 @@ class SyncMultiEnvTrainer(object):
             states, actions, R = fold_batch(states), fold_batch(actions), fold_batch(R)    
             l = self.model.backprop(states, R, actions)
 
-            if self.render_freq > 0 and t % (self.validate_freq * self.render_freq) == 0:
+            if self.render_freq > 0 and t % ((self.validate_freq // batch_size) * self.render_freq) == 0:
                 render = True
             else:
                 render = False
      
-            if self.validate_freq > 0 and t % self.validate_freq == 0:
+            if self.validate_freq > 0 and t % (self.validate_freq // batch_size) == 0:
                 self.validation_summary(t,l,start,render)
                 start = time.time()
             
-            if self.save_freq > 0 and  t % self.save_freq == 0: 
-                s += 1
-                self.save_model(s)
+            if self.save_freq > 0 and  t % self.save_freq // batch_size == 0: 
+                self.s += 1
+                self.save(self.s)
                 print('saved model')
             
-            if self.target_freq > 0 and t % self.target_freq == 0: # update target network (for value based learning e.g. DQN)
+            if self.target_freq > 0 and t % self.target_freq // batch_size == 0: # update target network (for value based learning e.g. DQN)
                 self.update_target()
-    
+
+            self.t +=1
     
     def nstep_return(self, rewards, last_values, dones, gamma=0.99, clip=False):
         if clip:
@@ -184,9 +188,10 @@ class SyncMultiEnvTrainer(object):
         return Adv
     
     def validation_summary(self,t,loss,start,render):
-        tot_steps = t * self.num_envs * self.nsteps
+        batch_size = self.num_envs * self.nsteps
+        tot_steps = t * batch_size
         time_taken = time.time() - start
-        frames_per_update = (self.validate_freq * self.num_envs * self.nsteps)
+        frames_per_update = (self.validate_freq // batch_size) * batch_size
         fps = frames_per_update /time_taken 
         num_val_envs = len(self.val_envs)
         num_val_eps = [self.num_val_episodes//num_val_envs for i in range(num_val_envs)]
@@ -219,10 +224,60 @@ class SyncMultiEnvTrainer(object):
             self.train_writer.add_summary(sumscore, tot_steps)
     
     def save_model(self,s):
-        model_loc = str(self.model_dir + self.current_time + '/' + str(s))
+        model_loc = str(self.model_dir + '/' + str(s))
         # default saving method is to save session
         self.saver.save(self.sess, model_loc + ".ckpt")
     
+    def base_attr(self):
+        attributes = {'train_mode':self.train_mode,
+                'total_steps':self.total_steps,
+                'nsteps':self.nsteps,
+                'return_type':self.return_type,
+                'gamma':self.gamma,
+                'lambda_':self.lambda_,
+                'validate_freq':self.validate_freq,
+                'num_val_episodes':self.num_val_episodes,
+                'save_freq':self.save_freq,
+                'render_freq':self.render_freq,
+                'model_dir':self.model_dir,
+                'train_log_dir':self.train_log_dir,
+                's':self.s,
+                't':self.t}
+
+        return attributes
+    
+    def local_attr(self, attr):
+        # attr[variable] = z
+        return attr
+
+    def save(self, s):
+        model_loc = str(self.model_dir + '/' + str(s) + '.trainer')
+        file = open(model_loc, 'w+')
+        attributes = self.base_attr()
+        # add local variables to dict 
+        attributes = self.local_attr(attributes)
+        json.dump(attributes, file)
+        # save model 
+        self.save_model(s)
+        file.close()
+    
+    def load(Class, model, envs, val_envs, filename, log_scalars=True, allow_gpu_growth=True, continue_train=True):
+        with open(filename, 'r') as file:
+            attrs = json.loads(file.read())
+        s = attrs.pop('s')
+        t = attrs.pop('t')
+        time = attrs.pop('current_time') 
+        print(attrs)
+        trainer = Class(envs=envs, model=model, val_envs=val_envs, **attrs)
+        if continue_train:
+            trainer.s = s
+            trainer.t = t
+        return trainer
+
+
+
+
+
     @abstractmethod
     def update_target(self):
         pass

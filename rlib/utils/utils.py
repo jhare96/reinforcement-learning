@@ -25,21 +25,24 @@ def one_hot(x, num_classes):
     return np.eye(num_classes)[x]
 
 
-class rolling_stats(object):
-    def __init__(self,mean=0,n=1,epsilon=1e-4):
+class Welfords_algorithm(object):
+    #https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm
+    def __init__(self, mean=0, epsilon=1e-4):
         self.mean = mean
-        self.n = n
-        self.M2 = 0
-        self.epsilon = epsilon
+        self.n = epsilon
+        self.M2 = 1
     
-    def update(self,x):
+    def update(self, x):
+        return self.update_from_mean(x.mean(axis=0))
+    
+    def update_from_mean(self, x):
         self.n +=1
         prev_mean = self.mean
-        new_mean = prev_mean + ((x - prev_mean)/self.n)
+        new_mean = prev_mean + ((x - prev_mean) / self.n)
         self.M2 += (x - new_mean) * (x - prev_mean)
-        std = np.sqrt((self.M2 + self.epsilon) / self.n)
+        self.var = self.M2 / self.n
         self.mean = new_mean
-        return self.mean, std
+        return self.mean, np.sqrt(self.var)
 
 #https://github.com/openai/baselines/blob/master/baselines/common/running_mean_std.py
 class RunningMeanStd(object):
