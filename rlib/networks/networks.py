@@ -279,16 +279,5 @@ def lstm_masked(input, cell_size, batch_size, fold_output=True, time_major=True,
     return lstm_output, hidden_tuple, hidden_out, mask
 
 
-#def echo_rnn(input, cell_size, fold_output=True, time_major=True):
-    #rnn_cell = 
-
-def fold_batch(x):
-    rows, cols = x.shape[0], x.shape[1]
-    y = np.reshape(x, (rows*cols,*x.shape[2:]))
-    return y
-
-def unfold_batch(x, batch_size):
-    y = np.reshape(x, (-1, batch_size, *x.shape[1:]))
-    return y
 
 

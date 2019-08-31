@@ -10,7 +10,7 @@ from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.VecEnv import*
 from rlib.utils.utils import fold_batch, one_hot, Welfords_algorithm, stack_many, RunningMeanStd
 
-#os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
+os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 
 class rolling_obs(object):
     def __init__(self, shape=()):
@@ -127,8 +127,8 @@ def predictor_cnn(x, conv1_size=32 ,conv2_size=64, conv3_size=64, dense_size=512
 def predictor_mlp(x, num_layers=2, dense_size=64, activation=tf.nn.leaky_relu, init_scale=np.sqrt(2), trainable=True):
     for i in range(num_layers):
         x = mlp_layer(x, dense_size, activation=activation, weight_initialiser=tf.orthogonal_initializer(init_scale), name='dense_' + str(i), trainable=trainable)
-    dense = mlp_layer(dense, dense_size, activation=None, weight_initialiser=tf.orthogonal_initializer(init_scale), name='pred_state', trainable=trainable)
-    return dense
+    x = mlp_layer(x, dense_size, activation=None, weight_initialiser=tf.orthogonal_initializer(init_scale), name='pred_state', trainable=trainable)
+    return x
 
 class RND(object):
     def __init__(self, policy_model, target_model, input_shape, action_size, value_coeff=1.0, intr_coeff=0.5, extr_coeff=1.0, lr=1e-4, decay_steps=6e5, grad_clip = 0.5, policy_args ={}, RND_args={}):
@@ -182,10 +182,9 @@ class RND(object):
     
     def intrinsic_reward(self, next_state, state_mean, state_std):
         feed_dict={self.next_state:next_state, self.state_mean:state_mean, self.state_std:state_std}
-        forward_loss = self.sess.run(self.intr_reward, feed_dict=feed_dict)
-        intr_reward = forward_loss
+        intr_reward = self.sess.run(self.intr_reward, feed_dict=feed_dict)
         return intr_reward
-    
+   
     def backprop(self, state, next_state, R_extr, R_intr, Adv, actions, old_policy, state_mean, state_std):
         feed_dict = {self.policy.state:state, self.policy.actions:actions,
                      self.next_state:next_state, self.state_mean:state_mean, self.state_std:state_std,
@@ -201,7 +200,7 @@ class RND(object):
 
 
 class RND_Trainer(SyncMultiEnvTrainer):
-    def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', model_dir='models/', total_steps=1000000, nsteps=5, num_epochs=4, num_minibatches=4, validate_freq=1000000.0,
+    def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', model_dir='models/', total_steps=1000000, nsteps=5, init_obs_steps=128*50, num_epochs=4, num_minibatches=4, validate_freq=1000000.0,
                  save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True, gpu_growth=True):
         
         super().__init__(envs, model, val_envs, train_mode=train_mode, log_dir=log_dir, model_dir=model_dir, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
@@ -213,11 +212,12 @@ class RND_Trainer(SyncMultiEnvTrainer):
         self.alpha = 1
         self.pred_prob = 1 / (self.num_envs / 32.0)
         self.lambda_ = 0.95
+        self.init_obs_steps = init_obs_steps
         self.num_epochs, self.num_minibatches = num_epochs, num_minibatches
         hyper_paras = {'learning_rate':model.lr,
          'grad_clip':model.grad_clip, 'nsteps':self.nsteps, 'num_workers':self.num_envs, 'total_steps':self.total_steps,
           'entropy_coefficient':0.001, 'value_coefficient':0.5, 'intr_coeff':model.intr_coeff,
-        'extr_coeff':model.extr_coeff}
+        'extr_coeff':model.extr_coeff, 'init_obs_steps':init_obs_steps}
         
         if log_scalars:
             filename = log_dir + '/hyperparameters.txt'
@@ -251,21 +251,25 @@ class RND_Trainer(SyncMultiEnvTrainer):
             with self.lock:
                 env.close()
     
+    # def init_state_obs(self, num_steps):
+    #     states = []
+    #     for i in range(1,num_steps+1):
+    #         rand_actions = np.random.randint(0, self.model.action_size, size=self.num_envs)
+    #         next_states, rewards, dones, infos = self.env.step(rand_actions)
+    #         states.append(next_states)
+    #         if i % self.nsteps == 0:
+    #             self.runner.state_mean, self.runner.state_std = self.state_rolling.update(np.stack(states))
+    #             states = []
+    
     def init_state_obs(self, num_steps):
-        states = []
-        for i in range(1,num_steps+1):
+        states = 0
+        for i in range(num_steps):
             rand_actions = np.random.randint(0, self.model.action_size, size=self.num_envs)
             next_states, rewards, dones, infos = self.env.step(rand_actions)
-            states.append(next_states)
-            if i % self.nsteps == 0:
-                self.runner.state_mean, self.runner.state_std = self.state_rolling.update(np.stack(states))
-                states = []
-    
-    def discount(self, rewards, gamma):
-        discounted = 0
-        for t in reversed(range(len(rewards))):
-            discounted = gamma * discounted  + rewards[t]
-        return discounted
+            states += next_states
+        mean = states / num_steps
+        var = (states - mean) / num_steps
+        self.runner.state_mean, self.runner.state_std = self.state_rolling.rolling.update_from_moments(mean.mean(axis=0)[...,-1:], var.mean(axis=0)[...,-1:], 1)
 
     
     def _train_nstep(self):
@@ -276,9 +280,9 @@ class RND_Trainer(SyncMultiEnvTrainer):
         obs = self.runner.states[0]
         obs = obs[...,-1:] if len(obs.shape) == 3 else obs
         self.state_rolling = rolling_obs(shape=obs.shape)
-        self.init_state_obs(128*50)
+        self.init_state_obs(self.init_obs_steps)
         self.runner.states = self.env.reset()
-        forward_filter = RewardForwardFilter(self.gamma)
+        forward_filter = RewardForwardFilter(0.99)
 
         # main loop
         start = time.time()
@@ -434,6 +438,7 @@ def main(env_id, Atari=True):
                             train_mode = 'nstep',
                             total_steps = 50e6,
                             nsteps = nsteps,
+                            init_obs_steps=128*50,
                             num_epochs=4,
                             num_minibatches=4,
                             validate_freq = 1e6,

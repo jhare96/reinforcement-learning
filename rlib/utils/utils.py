@@ -47,9 +47,9 @@ class Welfords_algorithm(object):
 #https://github.com/openai/baselines/blob/master/baselines/common/running_mean_std.py
 class RunningMeanStd(object):
     # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
-    def __init__(self, epsilon=1e-4, shape=()):
-        self.mean = np.zeros(shape, 'float64')
-        self.var = np.ones(shape, 'float64')
+    def __init__(self, epsilon=1e-4, shape=(), dtype=np.float32):
+        self.mean = np.zeros(shape, dtype=dtype)
+        self.var = np.ones(shape, dtype=dtype)
         self.count = epsilon
 
     def update(self, x):
