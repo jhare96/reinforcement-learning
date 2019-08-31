@@ -8,9 +8,9 @@ import threading
 from rlib.networks.networks import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.VecEnv import*
-from rlib.utils.utils import fold_batch, one_hot, stack_many, rolling_stats, RunningMeanStd
+from rlib.utils.utils import fold_batch, one_hot, stack_many, RunningMeanStd
 #from .OneNetCuriosity import Curiosity_onenet
-
+os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 
 class rolling_obs(object):
     def __init__(self, shape=()):
@@ -220,22 +220,30 @@ class Curiosity_Trainer(SyncMultiEnvTrainer):
         'extr_coeff':model.extr_coeff, 'lambda':self.lambda_, 'gamma':self.gamma, 'return type':self.return_type}
     
         if self.log_scalars:
-            filename = log_dir + self.current_time + '/hyperparameters.txt'
+            filename = log_dir + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
 
+    # def init_state_obs(self, num_steps):
+    #     states = []
+    #     for i in range(num_steps):
+    #         rand_actions = np.random.randint(0, self.model.action_size, size=self.num_envs)
+    #         next_states, rewards, dones, infos = self.env.step(rand_actions)
+    #         states.append(next_states)
+    #         if i % self.nsteps == 0 and i > 0:
+    #             self.runner.state_mean, self.runner.state_std = self.state_rolling.update(np.stack(states))
+    #             states = []
+    
     def init_state_obs(self, num_steps):
-        states = []
+        states = 0
         for i in range(num_steps):
             rand_actions = np.random.randint(0, self.model.action_size, size=self.num_envs)
             next_states, rewards, dones, infos = self.env.step(rand_actions)
-            states.append(next_states)
-            if i % self.nsteps == 0 and i > 0:
-                self.runner.state_mean, self.runner.state_std = self.state_rolling.update(np.stack(states))
-                states = []
-
+            states += next_states
+        mean = states / num_steps
+        var = (states - mean) / num_steps
+        self.runner.state_mean, self.runner.state_std = self.state_rolling.rolling.update_from_moments(mean.mean(axis=0)[...,-1:], var.mean(axis=0)[...,-1:], 1)
     
     def _train_nstep(self):
-        start = time.time()
         batch_size = (self.num_envs * self.nsteps)
         num_updates = self.total_steps // batch_size
         s = 0
@@ -245,11 +253,10 @@ class Curiosity_Trainer(SyncMultiEnvTrainer):
         self.runner.states = self.env.reset()
         forward_filter = RewardForwardFilter(self.gamma)
         # main loop
+        start = time.time()
         for t in range(1,num_updates+1):
-            start2 = time.time()
             states, next_states, actions, extr_rewards, intr_rewards, extr_values, intr_values, dones, infos = self.runner.run()
             policy, last_extr_values, last_intr_values = self.model.forward(next_states[-1])
-            print('rollout time', time.time() -start2)
 
             self.runner.state_mean, self.runner.state_std = self.state_rolling.update(next_states) # update state normalisation statistics 
             
@@ -269,9 +276,7 @@ class Curiosity_Trainer(SyncMultiEnvTrainer):
             # stack all states, next_states, actions and Rs across all workers into a single batch
             states, next_states, actions, R_extr, R_intr, Adv = fold_batch(states), fold_batch(next_states), fold_batch(actions), fold_batch(R_extr), fold_batch(R_intr), fold_batch(Adv)
             
-            start2= time.time()
             l = self.model.backprop(states, next_states, R_extr, R_intr, Adv, actions, self.runner.state_mean, self.runner.state_std)
-            print('backprop time', time.time() -start2)
             
             #start= time.time()
             if self.render_freq > 0 and t % ((self.validate_freq // batch_size) * self.render_freq) == 0:
@@ -364,7 +369,7 @@ def main(env_id, Atari=True):
                       value_coeff=0.5,
                       reward_scale=1.0,
                       lr=1e-4,
-                      lr_final=1e-3,
+                      lr_final=1e-4,
                       decay_steps=50e6//(num_envs*nsteps),
                       grad_clip=0.5,
                       policy_args={},
@@ -375,17 +380,18 @@ def main(env_id, Atari=True):
 
     curiosity = Curiosity_Trainer(envs = envs,
                                   model = model,
-                                  file_loc = [model_dir, train_log_dir],
+                                  model_dir = model_dir,
+                                  log_dir = train_log_dir,
                                   val_envs = val_envs,
                                   train_mode = 'nstep',
                                   return_type = 'GAE',
-                                  total_steps = 5e6,
+                                  total_steps = 50e6,
                                   nsteps = nsteps,
-                                  validate_freq = 1e5,
+                                  validate_freq = 1e6,
                                   save_freq = 0,
                                   render_freq = 0,
-                                  num_val_episodes = 25,
-                                  log_scalars=False)
+                                  num_val_episodes = 50,
+                                  log_scalars=True)
     print(env_id)
     curiosity.train()
 
@@ -395,7 +401,8 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
-    env_id_list = ['MontezumaRevengeDeterministic-v4', 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'PongDeterministic-v4', ]
+    os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+    env_id_list = ['MontezumaRevengeDeterministic-v4',]# 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'PongDeterministic-v4', ]
     #env_id_list = ['Acrobot-v1', 'MountainCar-v0', 'CartPole-v1' ]
     #for i in range(5):
     for env_id in env_id_list:
