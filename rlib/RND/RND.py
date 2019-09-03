@@ -416,8 +416,8 @@ def main(env_id, Atari=True):
     ac_mlp_args = {'dense_size':64}
 
     #with tf.device('GPU:3'):
-    model = RND(nature_cnn,
-                predictor_cnn,
+    model = RND(mlp,
+                predictor_mlp,
                 input_shape = input_size,
                 action_size = action_size,
                 intr_coeff=1.0,
@@ -436,12 +436,12 @@ def main(env_id, Atari=True):
                             log_dir = train_log_dir,
                             val_envs = val_envs,
                             train_mode = 'nstep',
-                            total_steps = 50e6,
+                            total_steps = 2e6,
                             nsteps = nsteps,
                             init_obs_steps=128*50,
                             num_epochs=4,
                             num_minibatches=4,
-                            validate_freq = 1e6,
+                            validate_freq = 4e4,
                             save_freq = 0,
                             render_freq = 0,
                             num_val_episodes = 50,
@@ -455,10 +455,10 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = '1'
-    env_id_list = ['MontezumaRevengeDeterministic-v4',]# 'SpaceInvadersDeterministic-v4','FreewayDeterministic-v4']
-    #env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v1' ]
-    for i in range(1):
+    os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+    env_id_list = ['MontezumaRevengeDeterministic-v4']#'SpaceInvadersDeterministic-v4', ]# , 'FreewayDeterministic-v4']
+    env_id_list = [ 'CartPole-v1' , 'Acrobot-v1','MountainCar-v0', ]
+    for i in range(5):
         for env_id in env_id_list:
             main(env_id)
     

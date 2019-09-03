@@ -2,17 +2,16 @@ import tensorflow as tf
 import numpy as np
 import scipy
 import gym
-import os, time
+import os, time, datetime
 import threading
 import scipy
-from rlib.utils.utils import fold_batch, one_hot, rolling_stats, RunningMeanStd
+from rlib.utils.utils import fold_batch, one_hot, RunningMeanStd
 from collections import deque
-from rlib.A2C.A2C import ActorCritic
-from rlib.A2C.ActorCritic import ActorCritic_LSTM
 from rlib.networks.networks import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.VecEnv import*
 
+#os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 
 def concat_action_reward(actions, rewards, num_classes):
     concat = one_hot(actions, num_classes)
@@ -447,9 +446,9 @@ def main(env_id, Atari=True):
     input_size = val_envs[0].reset().shape
     
     
-
-    train_log_dir = 'logs/UnrealCNN/' + env_id + '/'
-    model_dir = "models/UnrealCNN/" + env_id + '/'
+    current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
+    train_log_dir = 'logs/UnrealCNN/' + env_id + '/' + current_time
+    model_dir = "models/UnrealCNN/" + env_id + '/' + current_time
 
 
 
@@ -494,7 +493,8 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
-    env_id_list = ['MontezumaRevengeDeterministic-v4']#, 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'PongDeterministic-v4' ]
+    os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+    env_id_list = ['SpaceInvadersDeterministic-v4', ]#, 'MontezumaRevengeDeterministic-v4' 'FreewayDeterministic-v4', 'PongDeterministic-v4' ]
     #env_id_list = ['MountainCar-v0','CartPole-v1']
     for i in range(1):
         for env_id in env_id_list:
