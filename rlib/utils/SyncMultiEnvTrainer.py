@@ -228,6 +228,13 @@ class SyncMultiEnvTrainer(object):
         # default saving method is to save session
         self.saver.save(self.sess, model_loc + ".ckpt")
     
+    def load_model(self,modelname, model_dir="models/"):
+        if os.path.exists(model_dir + modelname+ ".ckpt"+ ".meta"):
+            self.saver.restore(self.sess, model_dir+modelname+".ckpt")
+            print("loaded:", model_dir+modelname)
+        else:
+            print(model_dir + modelname, " does not exist")
+    
     def base_attr(self):
         attributes = {'train_mode':self.train_mode,
                 'total_steps':self.total_steps,
@@ -261,7 +268,7 @@ class SyncMultiEnvTrainer(object):
         self.save_model(s)
         file.close()
     
-    def load(Class, model, envs, val_envs, filename, log_scalars=True, allow_gpu_growth=True, continue_train=True):
+    def load(self, Class, model, model_checkpoint, envs, val_envs, filename, log_scalars=True, allow_gpu_growth=True, continue_train=True):
         with open(filename, 'r') as file:
             attrs = json.loads(file.read())
         s = attrs.pop('s')
@@ -272,6 +279,7 @@ class SyncMultiEnvTrainer(object):
         if continue_train:
             trainer.s = s
             trainer.t = t
+        self.load_model(model_checkpoint, trainer.model_dir)
         return trainer
 
 
