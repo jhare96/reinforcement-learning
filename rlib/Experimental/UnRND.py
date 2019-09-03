@@ -546,6 +546,7 @@ def main(env_id, Atari=True):
     action_size = val_envs[0].action_space.n
     input_size = val_envs[0].reset().shape
     
+    time.sleep(np.random.uniform(1,30)) # stop processes sharing same log dir
     
     current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
     train_log_dir = 'logs/UnRND/' + env_id + '/' + current_time
