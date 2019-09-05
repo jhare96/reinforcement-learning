@@ -10,16 +10,17 @@ import copy
 from rlib.networks.networks import*
 from rlib.utils.VecEnv import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
-from rlib.utils.utils import fold_batch, stack_many
+from rlib.utils.utils import fold_batch, stack_many, log_uniform
 
 
-os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+
 
 class ActorCritic(object):
-    def __init__(self, model, input_shape, action_size, lr=1e-3, lr_final=0, decay_steps=80e3, grad_clip=0.5, **model_args):
+    def __init__(self, model, input_shape, action_size, entropy_coeff, lr=1e-3, lr_final=0, decay_steps=80e3, grad_clip=0.5, **model_args):
         self.lr, self.lr_final = lr, lr_final
         self.decay_steps = decay_steps
         self.grad_clip = grad_clip
+        self.entropy_coeff = entropy_coeff
         self.sess = None
 
         with tf.variable_scope('encoder_network'):
@@ -52,7 +53,7 @@ class ActorCritic(object):
 
         
         
-        self.loss =  policy_loss + 0.5 * value_loss - 0.01 * entropy
+        self.loss =  policy_loss + 0.5 * value_loss - entropy_coeff * entropy
         #optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
         optimiser = tf.train.AdamOptimizer(lr)
 
@@ -94,7 +95,7 @@ class A2C(SyncMultiEnvTrainer):
         self.runner = self.Runner(self.model,self.env,self.nsteps)
 
         hyperparas = {'learning_rate':model.lr, 'learning_rate_final':model.lr_final, 'lr_decay_steps':model.decay_steps , 'grad_clip':model.grad_clip, 'nsteps':nsteps, 'num_workers':self.num_envs,
-                  'total_steps':total_steps, 'entropy_coefficient':0.01, 'value_coefficient':0.5 , 'return type':self.return_type}
+                  'total_steps':total_steps, 'entropy_coefficient':model.entropy_coeff, 'value_coefficient':0.5 , 'return type':self.return_type}
         
         if log_scalars:
             filename = log_dir + '/' + 'hyperparameters.txt'
@@ -165,15 +166,15 @@ class A2C(SyncMultiEnvTrainer):
 
 
 
-def main(env_id):
+def main(env_id,lr,entropy):
     
     num_envs = 32
-    nsteps = 20
+    nsteps = 5
     
     current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
 
-    train_log_dir = 'logs/A2C/' + env_id +'/n-step/' + current_time 
-    model_dir = "models/A2C/" + env_id + '/n-step/' + current_time 
+    train_log_dir = 'logs/A2C/' + env_id +'/n-step/hyper_search/' + current_time 
+    model_dir = "models/A2C/" + env_id + '/n-step/hyper_search/' + current_time 
     
     env = gym.make(env_id)
     action_size = env.action_space.n
@@ -218,7 +219,14 @@ def main(env_id):
     ac_mlp_args = {'input_shape':input_size, 'dense_size':64, 'num_layers':2, 'action_size':action_size, 'lr':1e-3, 'grad_clip':0.5, 'decay_steps':5e6//(num_envs*nsteps), 'lr_final':0}
 
     
-    model = ActorCritic(nature_cnn, input_size, action_size, lr=1e-3, lr_final=1e-3, decay_steps=50e6//(num_envs*nsteps), grad_clip=0.5) 
+    model = ActorCritic(mlp,
+                        input_size,
+                        action_size,
+                        lr=lr,
+                        lr_final=lr,
+                        entropy_coeff=entropy,
+                        decay_steps=50e6//(num_envs*nsteps),
+                        grad_clip=0.5) 
     
 
     a2c = A2C(envs = envs,
@@ -230,27 +238,31 @@ def main(env_id):
               return_type = 'nstep',
               total_steps = 2e6,
               nsteps = nsteps,
-              validate_freq = 1e5,
+              validate_freq = 4e4,
               save_freq = 0,
               render_freq = 0,
               num_val_episodes = 50,
-              log_scalars = False,
+              log_scalars = True,
               gpu_growth = True)
 
     a2c.train()
 
     del a2c
 
-    #tf.reset_default_graph()
+    tf.reset_default_graph()
 
     # a2c = A2C.load(A2C, model, envs, val_envs, model_dir + time + '/1.trainer')
     # a2c.train()
 
 
 if __name__ == "__main__":
+    os.environ["CUDA_VISIBLE_DEVICES"] = '1'
     env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
     #env_id_list = ['MontezumaRevengeDeterministic-v4']
-    #env_id_list = ['CartPole-v1',]# 'MountainCar-v0', 'Acrobot-v1']
-    for i in range(1):
+    env_id_list = ['CartPole-v1', 'MountainCar-v0', 'Acrobot-v1', ]
+    for i in range(50):
+        lr = log_uniform(1e-5,1e-2)
+        entropy = log_uniform(0.001,1)
         for env_id in env_id_list:
-            main(env_id)
+            print(env_id, lr, entropy)
+            main(env_id,lr,entropy)

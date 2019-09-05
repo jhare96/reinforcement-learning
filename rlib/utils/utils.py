@@ -1,6 +1,9 @@
 import tensorflow as tf
 import numpy as np 
 
+def log_uniform(low=1e-10, high=1, size=()):
+    return np.exp(np.random.uniform(low=np.log(low), high=np.log(high), size=size))
+
 def stack_many(args):
     return tuple([np.stack(arg) for arg in args])
 
@@ -14,11 +17,6 @@ def fold_batch(x):
 
 def unfold_batch(x, length, batch_size):
     return x.reshape(length, batch_size, *x.shape[1:])
-
-@tf.function
-def keras_fold_batch(x):
-    time, batch = x.shape[0], x.shape[1]
-    return tf.keras.backend.reshape(x, shape=(time*batch, *x.shape[2:]) )
 
 
 def one_hot(x, num_classes):
