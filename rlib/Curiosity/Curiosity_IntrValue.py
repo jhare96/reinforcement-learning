@@ -3,24 +3,24 @@ import numpy as np
 import scipy
 import gym
 import os
-import time
+import time, datetime
 import threading
-from rlib.A2C.A2C import ActorCritic
 from rlib.networks.networks import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.VecEnv import*
-from rlib import PPO
-from rlib.utils.utils import stack_many, fold_batch, one_hot, RunningMeanStd
+from rlib.utils.utils import stack_many, fold_batch, unfold_batch, one_hot, RunningMeanStd
 from collections import OrderedDict
+import matplotlib.pyplot as plt 
 #from .OneNetCuriosity import Curiosity_onenet
-#os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
+os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 
 class rolling_obs(object):
-    def __init__(self, shape=()):
+    def __init__(self, shape=(), lastFrame=False):
         self.rolling = RunningMeanStd(shape=shape)
+        self.lastFrame = lastFrame
     
     def update(self, x):
-        if len(x.shape) == 5: # assume image obs 
+        if self.lastFrame: # assume image obs 
             return self.rolling.update(fold_batch(x[...,-1:])) #[time,batch,height,width,stack] -> [height, width,1]
         else:
             return self.rolling.update(fold_batch(x)) #[time,batch,*shape] -> [*shape]
@@ -37,7 +37,7 @@ class RewardForwardFilter(object):
         return self.rewems      
 
 class ICM(object):
-    def __init__(self, model_head, state, input_shape, action_size, reuse=False, **model_head_args):    
+    def __init__(self, model_head, state, input_shape, action_size, **model_head_args):    
             
         print('input_Shape', input_shape)
         #self.state = tf.placeholder(tf.float32, shape=[None, *input_shape], name="state")
@@ -56,14 +56,11 @@ class ICM(object):
         self.action = tf.placeholder(tf.int32, shape=[None], name="actions")
         action_onehot = tf.one_hot(self.action, action_size)
 
-        scope = 'Policy/encoder_network' if reuse else 'encoder_network'
-        with tf.variable_scope(scope, reuse=reuse):
+        with tf.variable_scope('encoder_network', reuse=False):
             self.phi1 = model_head(norm_state,  **model_head_args)
-        with tf.variable_scope(scope, reuse=True):
+        with tf.variable_scope('encoder_network', reuse=True):
             self.phi2 = model_head(norm_next_state,  **model_head_args)
         
-        if reuse:
-            self.phi1, self.phi2 = tf.stop_gradient(self.phi1), tf.stop_gradient(self.phi2)
 
         with tf.variable_scope('Forward_Model'):
             state_size = self.phi1.get_shape()[1].value
@@ -105,12 +102,12 @@ class PPO(object):
             self.Vi = tf.reshape(mlp_layer(self.dense, 1, name='intr_value', activation=None), shape=[-1])
         
         with tf.variable_scope("actor"):
-            self.policy_distrib = mlp_layer(self.dense, action_size, activation=tf.nn.softmax, name='policy_distribution')
+            self.policy_distrib = mlp_layer(self.dense, action_size, activation=tf.nn.softmax, name='policy_distribution')+ 1e-10
             self.actions = tf.placeholder(tf.int32, [None])
             actions_onehot = tf.one_hot(self.actions,action_size)
             
         with tf.variable_scope('losses'):
-            self.old_policy = tf.placeholder(dtype=tf.float32, shape=[None, action_size], name='old_policies') + 1e-10
+            self.old_policy = tf.placeholder(dtype=tf.float32, shape=[None, action_size], name='old_policies') 
             self.R_extr = tf.placeholder(dtype=tf.float32, shape=[None])
             self.R_intr = tf.placeholder(dtype=tf.float32, shape=[None])
 
@@ -188,7 +185,7 @@ class Curiosity(object):
                               **policy_args)
         
         with tf.name_scope('ICM'):
-            self.ICM = ICM(ICM_model, self.policy.state, input_shape, action_size, reuse=True, **ICM_args)
+            self.ICM = ICM(ICM_model, self.policy.state, input_shape, action_size, **ICM_args)
 
         self.loss = policy_importance * self.policy.loss + reward_scale * ((1-forward_model_scale) * self.ICM.inverse_loss + forward_model_scale * self.ICM.forward_loss ) 
         
@@ -235,7 +232,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
     def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', model_dir='models/', total_steps=1000000, nsteps=5, num_epochs=4, num_minibatches=4, validate_freq=1000000.0,
                  save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True):
         
-        super().__init__(envs, model, val_envs, train_mode=train_mode, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
+        super().__init__(envs, model, val_envs, train_mode=train_mode, log_dir=log_dir, model_dir=model_dir, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
                             save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars)
         self.runner = self.Runner(self.model, self.env, self.nsteps)
         self.alpha = 1
@@ -250,7 +247,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
 
         if log_scalars:
             hyper_paras = OrderedDict(hyper_paras)
-            filename = log_dir + self.current_time + '/hyperparameters.txt'
+            filename = log_dir + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
     
     def validate(self,env,num_ep,max_steps,render=False):
@@ -281,25 +278,37 @@ class RND_Trainer(SyncMultiEnvTrainer):
             with self.lock:
                 env.close()
     
+    # def init_state_obs(self, num_steps):
+    #     states = []
+    #     for i in range(num_steps):
+    #         rand_actions = np.random.randint(0, self.model.action_size, size=self.num_envs)
+    #         next_states, rewards, dones, infos = self.env.step(rand_actions)
+    #         states.append(next_states)
+    #         if i % self.nsteps == 0 and i > 0:
+    #             self.runner.state_mean, self.runner.state_std = self.state_rolling.update(np.stack(states))
+    #             states = []
+
     def init_state_obs(self, num_steps):
-        states = []
-        for i in range(num_steps):
+        states = 0
+        for i in range(1, num_steps+1):
             rand_actions = np.random.randint(0, self.model.action_size, size=self.num_envs)
             next_states, rewards, dones, infos = self.env.step(rand_actions)
-            states.append(next_states)
-            if i % self.nsteps == 0 and i > 0:
-                self.runner.state_mean, self.runner.state_std = self.state_rolling.update(np.stack(states))
-                states = []
-
+            states += next_states
+        mean = states / num_steps
+        #var = (states - mean) / num_steps
+        self.runner.state_mean, self.runner.state_std = self.state_rolling.update(mean.mean(axis=0)[None,None])
+        plt.imshow(mean.mean(axis=0)[...,-1])
+        plt.show()
+        plt.imshow(self.runner.state_mean[:,:,0])
+        plt.show()
     
     def _train_nstep(self):
         batch_size = (self.num_envs * self.nsteps)
         num_updates = self.total_steps //  batch_size
-        alpha_step = 1/num_updates
         s = 0
         rolling = RunningMeanStd(shape=())
-        self.state_rolling = rolling_obs(shape=())
-        self.init_state_obs(129)
+        self.state_rolling = rolling_obs(shape=(), lastFrame=True)
+        self.init_state_obs(128*50)
         self.runner.states = self.env.reset()
         forward_filter = RewardForwardFilter(self.gamma)
 
@@ -373,13 +382,12 @@ class RND_Trainer(SyncMultiEnvTrainer):
                 policies, values_extr, values_intr = self.model.forward(self.states)
                 actions = [np.random.choice(policies.shape[1], p=policies[i]) for i in range(policies.shape[0])]
                 next_states, extr_rewards, dones, infos = self.env.step(actions)
-
-                intr_rewards = self.model.intrinsic_reward(self.states, actions, next_states, self.state_mean, self.state_std)
-                #print('intr rewards', intr_rewards)
-                rollout.append((self.states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, policies, dones))
+                rollout.append((self.states, next_states, actions, extr_rewards, values_extr, values_intr, policies, dones))
                 self.states = next_states
 
-            states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, policies, dones = stack_many(zip(*rollout))
+            states, next_states, actions, extr_rewards, values_extr, values_intr, policies, dones = stack_many(zip(*rollout))
+            intr_rewards = self.model.intrinsic_reward(fold_batch(states), fold_batch(actions), fold_batch(next_states), self.state_mean, self.state_std)
+            intr_rewards = unfold_batch(intr_rewards, self.num_steps, len(self.env))
             return states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, policies, dones
     
             
@@ -414,9 +422,9 @@ def main(env_id, Atari=True):
     input_size = val_envs[0].reset().shape
     
     
-
-    train_log_dir = 'logs/Curiosity_IntrValue/' + env_id + '/'
-    model_dir = "models/Curiosity_IntrValue/" + env_id + '/'
+    current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
+    train_log_dir = 'logs/Curiosity_IntrValue/' + env_id + '/' + current_time
+    model_dir = "models/Curiosity_IntrValue/" + env_id + '/' + current_time
 
     
 
@@ -446,20 +454,21 @@ def main(env_id, Atari=True):
                       decay_steps=50e6//(num_envs*nsteps),
                       grad_clip=0.5,
                       policy_args={},
-                      ICM_args={'scale':False, }) #'weight_initialiser':tf.initializers.orthogonal(np.sqrt(2))
+                      ICM_args={'weight_initialiser':tf.initializers.orthogonal(np.sqrt(2)), 'scale':False }) 
 
     
 
     curiosity = RND_Trainer(envs = envs,
                             model = model,
-                            file_loc = [model_dir, train_log_dir],
+                            model_dir = model_dir,
+                            log_dir = train_log_dir,
                             val_envs = val_envs,
                             train_mode = 'nstep',
                             total_steps = 50e6,
                             nsteps = nsteps,
-                            num_epochs=3,
+                            num_epochs=4,
                             num_minibatches=4,
-                            validate_freq = 1e5,
+                            validate_freq = 1e6,
                             save_freq = 0,
                             render_freq = 0,
                             num_val_episodes = 50,
@@ -474,9 +483,10 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
-    env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4', 'FreewayDeterministic-v4']
-    #env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v1' ]
-    #for i in range(5):
-    for env_id in env_id_list:
-        main(env_id)
+    os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+    env_id_list = ['MontezumaRevengeDeterministic-v4']#  'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'PongDeterministic-v4', 'FreewayDeterministic-v4']
+    #env_id_list = ['CartPole-v1', 'Acrobot-v1', 'MountainCar-v0', ]
+    for i in range(1):
+        for env_id in env_id_list:
+            main(env_id)
     
