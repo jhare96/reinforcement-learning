@@ -241,7 +241,7 @@ def main(env_id,lr,entropy):
               validate_freq = 4e4,
               save_freq = 0,
               render_freq = 0,
-              num_val_episodes = 50,
+              num_val_episodes = 30,
               log_scalars = True,
               gpu_growth = True)
 
@@ -256,11 +256,11 @@ def main(env_id,lr,entropy):
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+    #os.environ["CUDA_VISIBLE_DEVICES"] = '0'
     env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
     #env_id_list = ['MontezumaRevengeDeterministic-v4']
     env_id_list = ['CartPole-v1', 'MountainCar-v0', 'Acrobot-v1', ]
-    for i in range(50):
+    for i in range(25):
         lr = log_uniform(1e-5,1e-2)
         entropy = log_uniform(0.001,1)
         for env_id in env_id_list:
