@@ -175,6 +175,9 @@ class RND(object):
             Q_aux_action = tf.reduce_sum(self.Qaux * pixel_action, axis=3)
             pixel_loss = 0.5 * tf.reduce_mean(tf.square(self.Qaux_target - Q_aux_action)) # l2 loss for Q_aux over all pixels and batch
         
+        with tf.variable_scope('value_replay'):
+            replay_loss = 0.5 * tf.reduce_mean(tf.square(self.replay_policy.R_extr - self.replay_policy.Ve))
+
 
         self.reward_state = tf.placeholder(tf.float32, shape=[None, *input_shape], name='reward_state')
         with tf.variable_scope('Policy/encoder_network', reuse=True):
@@ -231,7 +234,7 @@ class RND(object):
         return intr_reward
    
     def backprop(self, state, next_state, R_extr, R_intr, Adv, actions, old_policy, state_mean, state_std,
-        replay_states, replay_actions, Qaux_target, replay_dones, reward_states, sample_rewards):
+        replay_states, replay_actions, replay_Rextr, Qaux_target, replay_dones, reward_states, sample_rewards):
         
         feed_dict = {self.policy.state:state, self.policy.actions:actions,
                      self.next_state:next_state, self.state_mean:state_mean, self.state_std:state_std,
@@ -240,7 +243,7 @@ class RND(object):
                      
                      self.Qaux_target:Qaux_target, self.Qaux_actions:replay_actions,
                      self.reward_target:sample_rewards, self.reward_state:reward_states,
-                     self.replay_policy.state:replay_states}
+                     self.replay_policy.state:replay_states, self.replay_policy.R_extr:replay_Rextr}
 
         _, l = self.sess.run([self.train_op,self.loss], feed_dict=feed_dict)
         return l
@@ -360,10 +363,13 @@ class RND_Trainer(SyncMultiEnvTrainer):
         replay_states = np.stack([replay_sample[i][0] for i in range(len(replay_sample))])
         replay_actions = np.stack([replay_sample[i][1] for i in range(len(replay_sample))])
         replay_rewards = np.stack([replay_sample[i][2] for i in range(len(replay_sample))])
-        replay_dones = np.stack([replay_sample[i][3] for i in range(len(replay_sample))])
+        replay_extr_values = np.stack([replay_sample[i][3] for i in range(len(replay_sample))]) 
+        replay_dones = np.stack([replay_sample[i][4] for i in range(len(replay_sample))])
         #print('replay_hiddens dones shape', replay_dones.shape)
         
         next_state = self.replay[sample_start+self.nsteps][0] # get state 
+        _, replay_extr_last_values, replay_intr_last_values = self.model.forward(next_state)
+        replay_R = self.GAE(replay_rewards, replay_extr_values, replay_extr_last_values, replay_dones, gamma=0.99, lambda_=0.95) + replay_extr_values
 
         prev_states = self.replay[sample_start-1][0]
         Qaux_value = self.model.get_pixel_control(next_state)
@@ -372,7 +378,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
         Qaux_target = self.auxiliary_target(pixel_rewards, np.max(Qaux_value, axis=-1), replay_dones)
         #print('Qaux target', 'mean', Qaux_target.mean(), 'max', Qaux_target.max(), 'min', Qaux_target.min())
         
-        return replay_states, replay_actions, Qaux_target, replay_dones
+        return replay_states, replay_actions, replay_R, Qaux_target, replay_dones
     
     def sample_reward(self):
         # worker = np.random.randint(0,self.num_envs) # randomly sample from one of n workers
@@ -435,7 +441,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
             #print('intr reward', intr_rewards)
 
             reward_states, sample_rewards = self.sample_reward()
-            replay_states, replay_actions, Qaux_target, replay_dones = self.sample_replay()
+            replay_states, replay_actions, replay_Rextr, Qaux_target, replay_dones = self.sample_replay()
 
             Adv_extr = self.GAE(extr_rewards, values_extr, extr_last_values, dones, gamma=0.999, lambda_=self.lambda_)
             Adv_intr = self.GAE(intr_rewards, values_intr, intr_last_values, np.zeros_like(dones), gamma=0.99, lambda_=self.lambda_) # non episodic intr reward signal 
@@ -458,15 +464,15 @@ class RND_Trainer(SyncMultiEnvTrainer):
                                                     fold_batch(actions[batch_idxs]), fold_batch(R_extr[batch_idxs]), fold_batch(R_intr[batch_idxs]), \
                                                     fold_batch(total_Adv[batch_idxs]), fold_batch(old_policies[batch_idxs])
                     
-                    mb_replay_states, mb_replay_actions, mb_Qaux_target, mb_replay_dones = fold_batch(replay_states[batch_idxs]), fold_batch(replay_actions[batch_idxs]), \
-                                                                                           fold_batch(Qaux_target[batch_idxs]), fold_batch(replay_dones[batch_idxs])
+                    mb_replay_states, mb_replay_actions, mb_replay_Rextr, mb_Qaux_target, mb_replay_dones = fold_batch(replay_states[batch_idxs]), fold_batch(replay_actions[batch_idxs]), \
+                                                                                           fold_batch(replay_Rextr[batch_idxs]), fold_batch(Qaux_target[batch_idxs]), fold_batch(replay_dones[batch_idxs])
                 
                     mb_nextstates = mb_nextstates[np.where(np.random.uniform(size=(mini_batch_size)) < self.pred_prob)]
                     mb_nextstates = mb_nextstates[...,-1:] if len(mb_nextstates.shape) == 4 else mb_nextstates
                     
                     mean, std = self.runner.state_mean, self.runner.state_std
                     l += self.model.backprop(mb_states, mb_nextstates, mb_Rextr, mb_Rintr, mb_Adv, mb_actions, mb_old_policies, mean, std,
-                                            mb_replay_states, mb_replay_actions, mb_Qaux_target, mb_replay_dones, reward_states, sample_rewards)
+                                            mb_replay_states, mb_replay_actions, mb_replay_Rextr, mb_Qaux_target, mb_replay_dones, reward_states, sample_rewards)
             
             l /= (self.num_epochs * self.num_minibatches)
         
@@ -508,7 +514,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
                 intr_rewards = self.model.intrinsic_reward(next_states__, self.state_mean, self.state_std)
                 #print('intr rewards', intr_rewards)
                 rollout.append((self.states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, policies, dones))
-                self.replay.append((self.states, actions, extr_rewards, dones)) # add to replay memory
+                self.replay.append((self.states, actions, extr_rewards, values_extr, dones)) # add to replay memory
                 self.states = next_states
 
             states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, policies, dones = stack_many(zip(*rollout))
@@ -546,7 +552,7 @@ def main(env_id, Atari=True):
     action_size = val_envs[0].action_space.n
     input_size = val_envs[0].reset().shape
     
-    time.sleep(np.random.uniform(1,30)) # stop processes sharing same log dir
+    #time.sleep(np.random.uniform(1,30)) # stop processes sharing same log dir
     
     current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
     train_log_dir = 'logs/UnRND/' + env_id + '/' + current_time
@@ -591,11 +597,11 @@ def main(env_id, Atari=True):
                             num_epochs=4,
                             num_minibatches=4,
                             validate_freq = 1e6,
-                            save_freq = 0,
+                            save_freq = 5e6,
                             render_freq = 0,
                             num_val_episodes = 50,
                             log_scalars=True,
-                            gpu_growth=True)
+                            gpu_growth=False)
     curiosity.train()
     
     del curiosity
@@ -604,8 +610,8 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
-    #os.environ["CUDA_VISIBLE_DEVICES"] = '1'
-    env_id_list = ['MontezumaRevengeDeterministic-v4', ]#'SpaceInvadersDeterministic-v4', ]#  'FreewayDeterministic-v4']
+    #os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+    env_id_list = ['FreewayDeterministic-v4',]#'SpaceInvadersDeterministic-v4', ]#'MontezumaRevengeDeterministic-v4', ]#]#  ]
     #env_id_list = ['Acrobot-v1', 'MountainCar-v0', 'CartPole-v1' ]
     for i in range(1):
         for env_id in env_id_list:
