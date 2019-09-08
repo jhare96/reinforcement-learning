@@ -194,6 +194,8 @@ def main(env_id,lr,ep_final):
     num_envs = 32
     nsteps = 5
 
+    time.sleep(np.random.uniform(1,30))
+
     current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
     train_log_dir = 'logs/SyncDoubleDQN/' + env_id + '/n-step/hyper_search/' + current_time
     model_dir = "models/SyncDoubleDQN/" + env_id + '/' + current_time
