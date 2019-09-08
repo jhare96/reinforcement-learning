@@ -8,7 +8,7 @@ from collections import OrderedDict
 from rlib.networks.networks import*
 from rlib.utils.VecEnv import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
-from rlib.utils.utils import one_hot, fold_batch, unfold_batch
+from rlib.utils.utils import one_hot, fold_batch, unfold_batch, log_uniform
 
 
 main_lock = threading.Lock()
@@ -91,7 +91,7 @@ class SyncDDQN(SyncMultiEnvTrainer):
         self.epsilon_final = epsilon_final
         self.epsilon_steps = epsilon_steps
         schedule = self.linear_schedule(self.epsilon , epsilon_final, epsilon_steps//self.num_envs)
-        self.epsilon_test = np.array([epsilon_test], dtype=np.float64)
+        self.epsilon_test = np.array(epsilon_test, dtype=np.float64)
 
         self.action_size = action_size
         self.runner = SyncDDQN.Runner(self.model, self.target_model, self.epsilon, schedule, self.env, self.num_envs, self.nsteps, self.action_size)
@@ -154,6 +154,7 @@ class SyncDDQN(SyncMultiEnvTrainer):
                 rollout.append((self.states, actions, rewards, dones, infos))
                 self.states = next_states
                 self.schedule.step()
+                #print('epsilon', self.epsilon)
             
             states, actions, rewards, dones, infos = zip(*rollout)
             states, actions, rewards, dones = np.stack(states), np.stack(actions), np.stack(rewards), np.stack(dones)
@@ -188,12 +189,13 @@ def stackFireReset(env):
     return StackEnv(FireResetEnv(env))
 
 
-def main(env_id):
+def main(env_id,lr,ep_final):
+
     num_envs = 32
-    nsteps = 20
+    nsteps = 5
 
     current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
-    train_log_dir = 'logs/SyncDoubleDQN/' + env_id + '/lambda/' + current_time
+    train_log_dir = 'logs/SyncDoubleDQN/' + env_id + '/n-step/hyper_search/' + current_time
     model_dir = "models/SyncDoubleDQN/" + env_id + '/' + current_time
 
     env = gym.make(env_id)
@@ -223,8 +225,8 @@ def main(env_id):
     print('action space', action_size)
 
       
-    Q = DQN(mlp, input_shape=input_size, action_size=action_size, name='Q', lr=1e-3, lr_final=1e-3, grad_clip=0.5, decay_steps=50e6)
-    TargetQ = DQN(mlp, input_shape=input_size, action_size=action_size, name='QTarget', lr=1e-3, lr_final=1e-3, grad_clip=0.5, decay_steps=50e6)  
+    Q = DQN(mlp, input_shape=input_size, action_size=action_size, name='Q', lr=lr, lr_final=lr, grad_clip=0.5, decay_steps=50e6)
+    TargetQ = DQN(mlp, input_shape=input_size, action_size=action_size, name='QTarget', lr=lr, lr_final=lr, grad_clip=0.5, decay_steps=50e6)  
 
     
 
@@ -236,7 +238,7 @@ def main(env_id):
                     val_envs=val_envs,
                     action_size=action_size,
                     train_mode='nstep',
-                    return_type='lambda',
+                    return_type='nstep',
                     total_steps=2e6,
                     nsteps=nsteps,
                     gamma=0.99,
@@ -247,26 +249,22 @@ def main(env_id):
                     num_val_episodes=50,
                     update_target_freq=10000,
                     epsilon_start=1,
-                    epsilon_final=0.01,
+                    epsilon_final=ep_final,
                     epsilon_steps=8e4,
                     epsilon_test=0.01,
                     log_scalars=True)
     
-   
-    
-     
-    
     DDQN.train()
-
     del DDQN
-
     tf.reset_default_graph()
 
 if __name__ == "__main__":
     #env_id_list = [ 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4',]# 'MontezumaRevengeDeterministic-v4', ]
-    env_id_list = ['MontezumaRevengeDeterministic-v4']
-    env_id_list = ['CartPole-v1', 'Acrobot-v1',  'MountainCar-v0',]
-    for i in range(5):
+    #env_id_list = ['MontezumaRevengeDeterministic-v4']
+    env_id_list = ['Acrobot-v1',  'CartPole-v1',  'MountainCar-v0',]
+    for i in range(30):
+        ep_final = np.random.choice([0.1,0.01])
+        lr = log_uniform(5e-5,1e-2)
         for env_id in env_id_list:
-            main(env_id)
+            main(env_id,lr,ep_final)
    # 
