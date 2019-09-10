@@ -8,7 +8,9 @@ from collections import OrderedDict
 from rlib.networks.networks import*
 from rlib.utils.VecEnv import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.DDQN.SyncDQN import DQN
 from rlib.utils.utils import one_hot, fold_batch, unfold_batch, log_uniform
+#from rlib.utils.ReplayMemory import NumpyReplayMemory
 
 
 main_lock = threading.Lock()
@@ -19,72 +21,68 @@ def save_hyperparameters(filename, **kwargs):
         handle.write("{} = {}\n" .format(key, value))
     handle.close()
 
-
-
-class DQN(object):
-    def __init__(self, model, input_shape, action_size, name, lr=0.00025, grad_clip = 0.5, decay_steps=50e6, lr_final=0, **model_args):
-        self.lr = lr
-        self.lr_final = lr_final
-        self.decay_steps = decay_steps
-        self.grad_clip = grad_clip
-        self.name = name 
-        self.action_size = action_size
-        self.sess = None
-
-        try:
-            iterator = iter(input_shape)
-        except TypeError:
-            input_size = (input_shape,)
-
-        with tf.variable_scope(name):
-            with tf.variable_scope('encoder_network'):
-                self.state = tf.placeholder(tf.float32, shape=[None, *input_shape])
-                self.dense = model(self.state, **model_args)
+class SequentialReplayMemory(object):
+    def __init__(self, replaysize, shape):
+        num_actors = shape[0]
+        self._idx = 0
+        self._full_flag = False
+        self._replay_length = replaysize
+        self._states = np.zeros((replaysize,*shape), dtype=np.uint8)
+        self._actions = np.zeros((replaysize,num_actors), dtype=np.int)
+        self._rewards = np.zeros((replaysize,num_actors), dtype=np.int)
+        #self._next_states = np.zeros((replaysize,*shape), dtype=np.uint8)
+        self._dones = np.zeros((replaysize,num_actors), dtype=np.int)
+        #self._stacked_frames = deque([np.zeros((width,height), dtype=np.uint8) for i in range(stack)], maxlen=stack)
     
-            with tf.variable_scope("State_Action"):
-                self.Qsa = mlp_layer(self.dense, action_size, activation=None)
-                self.R = tf.placeholder("float", shape=[None])
-                self.actions = tf.placeholder(shape=[None], dtype=tf.int32)
-                actions_onehot = tf.one_hot(self.actions, action_size)
-                self.Qvalue = tf.reduce_sum(tf.multiply(self.Qsa, actions_onehot), axis = 1)
-                self.loss = tf.reduce_mean(tf.square(self.R - self.Qvalue))
+    def addMemory(self,state,action,reward,done):
+        self._states[self._idx] = state
+        self._actions[self._idx] = action
+        self._rewards[self._idx] = reward
+        #self._next_states[self._idx] = next_state
+        self._dones[self._idx] = done
+        if self._idx + 1 >= self._replay_length:
+            self._idx = 0
+            self._full_flag = True
+        else:
+            self._idx += 1
+    
+    def __len__(self):
+        if self._full_flag == False:
+            return self._idx
+        else:
+            return self._replay_length
+    
+    def get_size(self):
+        return self._replay_length
+    
+    def sample(self, batch_length):
+        if self._full_flag == False:
+            idx = np.random.choice(self._idx - batch_length -1, replace=False)
+        else:
+            idx = np.random.choice(self._replay_length - batch_length - 1, replace=False)
         
-        
-            global_step = tf.Variable(0, trainable=False)
-            lr = tf.train.polynomial_decay(lr, global_step, decay_steps, end_learning_rate=lr_final, power=1.0, cycle=False, name=None)
-            #optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
-            optimiser = tf.train.AdamOptimizer(lr)
-            
-            self.weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
-            grads = tf.gradients(self.loss, self.weights)
-            grads, _ = tf.clip_by_global_norm(grads, grad_clip)
-            grads_vars = list(zip(grads, self.weights))
-            self.train_op = optimiser.apply_gradients(grads_vars, global_step=global_step)
+        states = self._states[idx:idx+batch_length]
+        actions = self._actions[idx:idx+batch_length]
+        rewards = self._rewards[idx:idx+batch_length]
+        dones = self._dones[idx:idx+batch_length]
+        next_states = self._states[idx+batch_length+1]
 
-    
-    def forward(self, state):
-        return self.sess.run(self.Qsa, feed_dict = {self.state: state})
-
-    def backprop(self, states, R, actions):
-        _,l = self.sess.run([self.train_op,self.loss], feed_dict = {self.state:states, self.R:R, self.actions:actions})
-        return l
-    
-    def set_session(self, sess):
-        self.sess = sess
-
-
+        return states, actions, rewards, dones, next_states
 
 
 class SyncDDQN(SyncMultiEnvTrainer):
-    def __init__(self, envs, model, target_model, val_envs, action_size, log_dir='logs/SyncDDQN/', model_dir='models/SyncDDQN/',
+    def __init__(self, envs, model, target_model, val_envs, action_size, log_dir='logs/', model_dir='models/',
                      train_mode='nstep', return_type='nstep', total_steps=1000000, nsteps=5, gamma=0.99, lambda_=0.95,
                      validate_freq=1e6, save_freq=0, render_freq=0, update_target_freq=10000, num_val_episodes=50, log_scalars=True, gpu_growth=True,
-                     epsilon_start=1, epsilon_final=0.01, epsilon_steps = 1e6, epsilon_test=0.01):
+                     epsilon_start=1, epsilon_final=0.01, epsilon_steps = 1e6, epsilon_test=0.01, replay_length=1e6):
 
         
         super().__init__(envs=envs, model=model, val_envs=val_envs, train_mode=train_mode, log_dir=log_dir, model_dir=model_dir, return_type=return_type, total_steps=total_steps,
                 nsteps=nsteps, gamma=gamma, lambda_=lambda_, validate_freq=validate_freq, save_freq=save_freq, render_freq=render_freq,
                 update_target_freq=update_target_freq, num_val_episodes=num_val_episodes, log_scalars=log_scalars, gpu_growth=gpu_growth)
+
+
+        self.replay = SequentialReplayMemory(int(replay_length)//self.num_envs, self.env.reset().shape)
         
         self.target_model = target_model
         self.epsilon = np.array([epsilon_start], dtype=np.float64)
@@ -94,7 +92,8 @@ class SyncDDQN(SyncMultiEnvTrainer):
         self.epsilon_test = np.array(epsilon_test, dtype=np.float64)
 
         self.action_size = action_size
-        self.runner = SyncDDQN.Runner(self.model, self.target_model, self.epsilon, schedule, self.env, self.num_envs, self.nsteps, self.action_size)
+        self.runner = SyncDDQN.Runner(self.model, self.target_model, self.epsilon, schedule, self.env, self.num_envs,
+                                        self.nsteps, self.action_size, self.replay)
         
         self.update_weights = [tf.assign(new, old) for (new, old) in 
             zip(tf.trainable_variables(scope='QTarget'), tf.trainable_variables('Q'))]
@@ -114,6 +113,7 @@ class SyncDDQN(SyncMultiEnvTrainer):
         init = tf.global_variables_initializer()
         self.sess.run(init)
         
+        self.populate_memory()
     
     def get_action(self, state):
         if np.random.uniform() < self.epsilon_test:
@@ -126,12 +126,20 @@ class SyncDDQN(SyncMultiEnvTrainer):
         self.sess.run(self.update_weights)
 
     
+    def populate_memory(self):
+        for i in range(self.replay.get_size()//10):
+            rand_actions = np.random.randint(0, self.model.action_size, size=self.num_envs)
+            states, rewards, dones, infos = self.env.step(rand_actions)
+            self.replay.addMemory(states, rand_actions, rewards, dones)
+        print('finished initial memory population')
+
+    
     def local_attr(self, attr):
         attr['update_target_freq':self.target_freq]
         return attr
     
     class Runner(object):
-        def __init__(self, Q, TargetQ, epsilon, epsilon_schedule, env, num_envs, num_steps, action_size):
+        def __init__(self, Q, TargetQ, epsilon, epsilon_schedule, env, num_envs, num_steps, action_size, replay):
             self.Q = Q
             self.TargetQ = TargetQ
             self.epsilon = epsilon
@@ -141,8 +149,19 @@ class SyncDDQN(SyncMultiEnvTrainer):
             self.num_steps = num_steps
             self.action_size = action_size
             self.states = self.env.reset()
+            self.replay = replay
         
-        def run(self):
+        def sample_replay(self):
+            states, actions, rewards, dones, next_states = self.replay.sample(self.num_steps)
+            TargetQsa = unfold_batch(self.TargetQ.forward(fold_batch(states)), self.num_steps, self.num_envs) # Q(s,a; theta-1)
+            values = np.sum(TargetQsa * one_hot(actions, self.action_size), axis=-1) # Q(s, argmax_a Q(s,a; theta); theta-1)
+            
+            last_actions = np.argmax(self.Q.forward(next_states), axis=1)
+            last_TargetQsa = self.TargetQ.forward(next_states) # Q(s,a; theta-1)
+            last_values = np.sum(last_TargetQsa * one_hot(last_actions, self.action_size), axis=-1) # Q(s, argmax_a Q(s,a; theta); theta-1)
+            return states, actions, rewards, dones, 0, values, last_values
+        
+        def run_(self):
             rollout = []
             for t in range(self.num_steps):
                 Qsa = self.Q.forward(self.states)
@@ -151,20 +170,15 @@ class SyncDDQN(SyncMultiEnvTrainer):
                 random_actions = np.random.randint(self.action_size, size=(self.num_envs))
                 actions = np.where(random < self.epsilon, random_actions, actions)
                 next_states, rewards, dones, infos = self.env.step(actions)
-                rollout.append((self.states, actions, rewards, dones, infos))
+                self.replay.addMemory(self.states, actions, rewards, dones)
                 self.states = next_states
                 self.schedule.step()
                 #print('epsilon', self.epsilon)
             
-            states, actions, rewards, dones, infos = zip(*rollout)
-            states, actions, rewards, dones = np.stack(states), np.stack(actions), np.stack(rewards), np.stack(dones)
-            TargetQsa = unfold_batch(self.TargetQ.forward(fold_batch(states)), self.num_steps, self.num_envs) # Q(s,a; theta-1)
-            values = np.sum(TargetQsa * one_hot(actions, self.action_size), axis=-1) # Q(s, argmax_a Q(s,a; theta); theta-1)
+        def run(self,):
+            self.run_()
+            return self.sample_replay()
             
-            last_actions = np.argmax(self.Q.forward(next_states), axis=1)
-            last_TargetQsa = self.TargetQ.forward(next_states) # Q(s,a; theta-1)
-            last_values = np.sum(last_TargetQsa * one_hot(last_actions, self.action_size), axis=-1) # Q(s, argmax_a Q(s,a; theta); theta-1)
-            return states, actions, rewards, dones, infos, values, last_values
     
     class linear_schedule(object):
         def __init__(self, epsilon, epsilon_final, num_steps=1000000):
@@ -191,14 +205,14 @@ def stackFireReset(env):
 
 def main(env_id,lr,ep_final):
 
-    num_envs = 8
-    nsteps = 128
+    num_envs = 32
+    nsteps = 5
 
     time.sleep(np.random.uniform(1,30))
 
     current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
-    train_log_dir = 'logs/SyncDDQN/' + env_id + '/n-step/RMSprop/' + current_time
-    model_dir = "models/SyncDDQN/" + env_id + '/' + current_time
+    train_log_dir = 'logs/SyncDDQN_SER/' + env_id + '/n-step/RMSprop/' + current_time
+    model_dir = "models/SyncDDQN_SER/" + env_id + '/' + current_time
 
     env = gym.make(env_id)
     
@@ -227,8 +241,8 @@ def main(env_id,lr,ep_final):
     print('action space', action_size)
 
       
-    Q = DQN(mlp, input_shape=input_size, action_size=action_size, name='Q', lr=1e-3, lr_final=1e-3, grad_clip=0.5, decay_steps=50e6)
-    TargetQ = DQN(mlp, input_shape=input_size, action_size=action_size, name='QTarget', lr=1e-3, lr_final=1e-3, grad_clip=0.5, decay_steps=50e6)  
+    Q = DQN(mlp, input_shape=input_size, action_size=action_size, name='Q', lr=lr, lr_final=lr, grad_clip=0.5, decay_steps=50e6)
+    TargetQ = DQN(mlp, input_shape=input_size, action_size=action_size, name='QTarget', lr=lr, lr_final=lr, grad_clip=0.5, decay_steps=50e6)  
 
     
 
@@ -240,30 +254,34 @@ def main(env_id,lr,ep_final):
                     val_envs=val_envs,
                     action_size=action_size,
                     train_mode='nstep',
-                    return_type='lambda',
-                    total_steps=50e6,
+                    return_type='nstep',
+                    total_steps=2e6,
                     nsteps=nsteps,
                     gamma=0.99,
                     lambda_=0.95,
                     save_freq=0,
                     render_freq=0,
-                    validate_freq=1e6,
+                    validate_freq=4e4,
                     num_val_episodes=50,
-                    update_target_freq=1024,
+                    update_target_freq=10000,
                     epsilon_start=1,
-                    epsilon_final=0.01,
-                    epsilon_steps=2e6,
+                    epsilon_final=0.1,
+                    epsilon_steps=1e6,
                     epsilon_test=0.01,
-                    log_scalars=True)
+                    replay_length=5e5,
+                    log_scalars=False)
     
     DDQN.train()
     del DDQN
     tf.reset_default_graph()
 
 if __name__ == "__main__":
-    env_id_list = [ 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4','MontezumaRevengeDeterministic-v4', ]
+    #env_id_list = [ 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4',]# 'MontezumaRevengeDeterministic-v4', ]
     #env_id_list = ['MontezumaRevengeDeterministic-v4']
-    #env_id_list = ['MountainCar-v0', 'CartPole-v1', 'Acrobot-v1', ]
-    for env_id in env_id_list:
-        main(env_id)
+    env_id_list = ['MountainCar-v0',]# 'CartPole-v1', 'Acrobot-v1', ]
+    for i in range(1):
+        ep_final = 0.1#np.random.choice([0.1,0.01])
+        lr = 1e-4#log_uniform(5e-5,1e-2)
+        for env_id in env_id_list:
+            main(env_id,lr,ep_final)
    # 

@@ -8,7 +8,7 @@ import threading
 from rlib.networks.networks import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.VecEnv import*
-from rlib.utils.utils import fold_batch, one_hot, rolling_stats, stack_many
+from rlib.utils.utils import fold_batch, one_hot, Welfords_algorithm, stack_many
 from rlib.RND.RND import predictor_cnn
 #from .OneNetCuriosity import Curiosity_onenet
 
@@ -164,9 +164,12 @@ class UnRND(object):
             Q_aux_action = tf.reduce_sum(self.Qaux * pixel_action, axis=3)
             pixel_loss = 0.5 * tf.reduce_mean(tf.square(self.Qaux_target - Q_aux_action)) # l2 loss for Q_aux over all pixels and batch
 
+        self.reward_state = tf.placeholder(tf.float32, shape=[None, *input_shape], name='reward_state')
+        with tf.variable_scope('Policy/encoder_network', reuse=True):
+            reward_enc = policy_model(self.reward_state)
+
         with tf.variable_scope('reward_model'):
             self.reward_target = tf.placeholder(tf.float32, shape=[None, 3], name='reward_target')
-            reward_enc = tf.concat([self.policy.dense, tf.cast(one_hot_actions, tf.float32)], axis=1)
             r1 = mlp_layer(reward_enc, 128, activation=tf.nn.relu, name='reward_hidden')
             print('rl shape', r1.get_shape().as_list())
             pred_reward = mlp_layer(r1, 3, activation=None, name='pred_reward')
@@ -191,7 +194,7 @@ class UnRND(object):
             self.intr_reward = tf.reduce_mean(tf.square(pred_next_state - tf.stop_gradient(target_state)), axis=-1)
             feat_loss = tf.reduce_mean(self.intr_reward)
 
-        self.loss = policy_importance * self.policy.loss  + reward_scale * feat_loss + RP * reward_loss + PC * pixel_loss
+        self.loss = self.policy.loss + feat_loss + RP * reward_loss #+ PC * pixel_loss
 
 
         #global_step = tf.Variable(0, trainable=False)
@@ -235,12 +238,12 @@ class UnRND(object):
         feed_dict = {self.policy.state:state}
         return self.sess.run(self.Qaux, feed_dict=feed_dict)
     
-    def backprop(self, state, next_state, R_extr, R_intr, Adv, actions, Qaux_target, target_rewards, state_mean, state_std):
+    def backprop(self, state, next_state, R_extr, R_intr, Adv, actions, Qaux_target, reward_states, target_rewards, state_mean, state_std):
         actions_onehot = one_hot(actions, self.action_size)
         feed_dict = {self.policy.state:state, self.policy.actions:actions,
                      self.policy.R_extr:R_extr, self.policy.R_intr:R_intr, self.policy.Advantage:Adv,
                      self.next_state:next_state, self.state_mean:state_mean, self.state_std:state_std,
-                     self.Qaux_target:Qaux_target, self.reward_target:target_rewards}
+                     self.Qaux_target:Qaux_target, self.reward_target:target_rewards, self.reward_state:reward_states}
 
         _, l = self.sess.run([self.train_op,self.loss], feed_dict=feed_dict)
         return l
@@ -308,12 +311,13 @@ class UnRND_Trainer(SyncMultiEnvTrainer):
         
         return R
     
-    def pixel_rewards(self, prev_state, states):
+    def pixel_rewards(self, states):
         T = len(states) # time length 
         B = states.shape[1] #batch size
         pixel_rewards = np.zeros((T,B,21,21))
+        prev_state = states[0,...,-2:-1]
         states = states[...,-1:]
-        prev_state = prev_state[...,-1:]
+        #print('prev state', prev_state.shape)
         if self.norm_pixel:
             states = self.norm_obs(states)
             #print('states, max', states.max(), 'min', states.min(), 'mean', states.mean())
@@ -325,35 +329,60 @@ class UnRND_Trainer(SyncMultiEnvTrainer):
         #print('pixel reward',pixel_rewards.shape, 'max', pixel_rewards.max(), 'mean', pixel_rewards.mean())
         return pixel_rewards
 
+    def sample_reward(self, states, rewards):
+        # worker = np.random.randint(0,self.num_envs) # randomly sample from one of n workers
+        worker = np.argmax(np.sum(rewards, axis=0)) # sample experience from best worker
+        nonzero_idxs = np.where(np.abs(rewards) > 0)[0] # idxs where |reward| > 0 
+        zero_idxs = np.where(rewards == 0)[0] # idxs where reward == 0 
+        
+        
+        if len(nonzero_idxs) ==0 or len(zero_idxs) == 0: # if nonzero or zero idxs do not exist i.e. all rewards same sign 
+            idx = np.random.randint(len(rewards))
+        elif np.random.uniform() > 0.5: # sample from zero and nonzero rewards equally
+            #print('nonzero')
+            idx = np.random.choice(nonzero_idxs)
+        else:
+            idx = np.random.choice(zero_idxs)
+        
+        
+        reward_states = states[idx][worker]
+        #reward_states = np.stack([replay_states[i] for i in range(idx-3,idx)])
+        #sign = int(np.sign(self.replay[idx][2][worker]))
+        sign = int(np.sign(rewards[idx,worker]))
+        reward = np.zeros((1,3))
+        reward[0,sign] = 1 # catergorical [zero, positive, negative]
+    
+        return reward_states[np.newaxis], reward
+
     def _train_nstep(self):
         batch_size = self.num_envs * self.nsteps
         num_updates = self.total_steps // batch_size
-        validate_freq = self.validate_freq // batch_size
-        save_freq = self.save_freq // batch_size
+        #validate_freq = self.validate_freq // batch_size
+        #save_freq = self.save_freq // batch_size
 
         s = 0
         rolling = RunningMeanStd()
-        self.init_state_obs(20*32*50*25)
+        self.init_state_obs(20*50*25)
         forward_filter = RewardForwardFilter(0.99)
         self.runner.states = self.env.reset()
         # main loop
         start = time.time()
         for t in range(1,num_updates+1):
-            states, next_states, actions, extr_rewards, intr_rewards, extr_values, intr_values, prev_states, dones, infos = self.runner.run()
+            states, next_states, actions, extr_rewards, intr_rewards, extr_values, intr_values, dones, infos = self.runner.run()
             policy, last_extr_values, last_intr_values = self.model.forward(next_states[-1])
             self.update_minmax(states)
 
             Qaux_value = self.model.get_pixel_control(next_states[-1])
-            pixel_rewards = self.pixel_rewards(prev_states, states)
+            pixel_rewards = self.pixel_rewards(states)
             Qaux_target = fold_batch(self.auxiliary_target(pixel_rewards, np.max(Qaux_value, axis=-1), dones))
 
-            onehot_rewards = fold_batch(one_hot(extr_rewards.astype(np.int32), 3))
-            
+            #onehot_rewards = fold_batch(one_hot(extr_rewards.astype(np.int32), 3))
+            reward_states, sample_rewards, = self.sample_reward(states, extr_rewards)
+
             self.runner.state_mean, self.runner.state_std = self.state_rolling.update(next_states) # update state normalisation statistics
             
             
             r_intr = np.array([forward_filter.update(intr_rewards[i]) for i in range(len(intr_rewards))]) # update intrinsic return estimate
-            #r_intr = self.nstep_return(intr_rewards, last_intr_values, np.zeros_like(dones))
             R_intr_mean, R_intr_std = rolling.update(r_intr.ravel())
             intr_rewards /= R_intr_std # normalise intr rewards 
             #print('intr_reward', intr_rewards)
@@ -369,20 +398,20 @@ class UnRND_Trainer(SyncMultiEnvTrainer):
             next_states = next_states[...,-1:] if len(next_states.shape) == 5 else next_states
             states, next_states, actions, R_extr, R_intr, Adv = fold_batch(states), fold_batch(next_states), fold_batch(actions), fold_batch(R_extr), fold_batch(R_intr), fold_batch(Adv) 
         
-            l = self.model.backprop(states, next_states, R_extr, R_intr, Adv, actions, Qaux_target, onehot_rewards, self.runner.state_mean, self.runner.state_std)
+            l = self.model.backprop(states, next_states, R_extr, R_intr, Adv, actions, Qaux_target, reward_states, sample_rewards, self.runner.state_mean, self.runner.state_std)
             #print('backprop time', time.time() -start)
             
             #start= time.time()
-            if self.render_freq > 0 and t % (validate_freq * self.render_freq) == 0:
+            if self.render_freq > 0 and t % ((self.validate_freq // batch_size) * self.render_freq) == 0:
                 render = True
             else:
                 render = False
      
-            if self.validate_freq > 0 and t % validate_freq == 0:
+            if self.validate_freq > 0 and t % (self.validate_freq // batch_size) == 0:
                 self.validation_summary(t,l,start,render)
                 start = time.time()
             
-            if self.save_freq > 0 and  t % save_freq == 0:
+            if self.save_freq > 0 and  t % (self.save_freq // batch_size) == 0:
                 s += 1
                 self.saver.save(self.sess, str(self.model_dir + '/' + str(s) + ".ckpt") )
                 print('saved model')
@@ -392,7 +421,6 @@ class UnRND_Trainer(SyncMultiEnvTrainer):
     def get_action(self, state):
         policy, *values = self.model.forward(state)
         action = int(np.random.choice(policy.shape[1], p=policy[0]))
-        #action = np.argmax(policy)
         return action
 
     class Runner(SyncMultiEnvTrainer.Runner):
@@ -400,25 +428,22 @@ class UnRND_Trainer(SyncMultiEnvTrainer):
             super().__init__(model, env, num_steps)
             self.state_mean = None
             self.state_std = None
-            self.first_state = self.states.copy()
 
         def run(self,):
             rollout = []
-            first_state = self.first_state
             for t in range(self.num_steps):
                 start = time.time()
                 policies, extr_values, intr_values = self.model.forward(self.states)
                 actions = [np.random.choice(policies.shape[1], p=policies[i]) for i in range(policies.shape[0])]
                 next_states, extr_rewards, dones, infos = self.env.step(actions)
-                next_states_ = next_states[...,-1:] if len(next_states.shape) == 4 else next_states
-                intr_rewards = self.model.intrinsic_reward(next_states_, self.state_mean, self.state_std)
+                next_states__ = next_states[...,-1:] if len(next_states.shape) == 4 else next_states
+                intr_rewards = self.model.intrinsic_reward(next_states__, self.state_mean, self.state_std)
                 #print('intr_rewards', self.model.intr_coeff * intr_rewards)
                 rollout.append((self.states, next_states, actions, extr_rewards, intr_rewards, extr_values, intr_values, dones, np.array(infos)))
-                self.first_state = self.states.copy()
                 self.states = next_states
             
             states, next_states, actions, extr_rewards, intr_rewards, extr_values, intr_values, dones, infos = stack_many(zip(*rollout))
-            return states, next_states, actions, extr_rewards, intr_rewards, extr_values, intr_values, first_state, dones, infos
+            return states, next_states, actions, extr_rewards, intr_rewards, extr_values, intr_values, dones, infos
             
 
 def main(env_id, Atari=True):
@@ -482,8 +507,8 @@ def main(env_id, Atari=True):
                 value_coeff=0.5,
                 RP=1, 
                 PC=1,
-                lr=1e-3,
-                lr_final=1e-3,
+                lr=1e-4,
+                lr_final=1e-4,
                 decay_steps=50e6//(num_envs*nsteps),
                 grad_clip=0.5,
                 policy_args={},
@@ -500,11 +525,11 @@ def main(env_id, Atari=True):
                             norm_pixel = True,
                             total_steps = 50e6,
                             nsteps = nsteps,
-                            validate_freq = 1e4,
+                            validate_freq = 1e6,
                             save_freq = 0,
                             render_freq = 0,
                             num_val_episodes = 50,
-                            log_scalars=False)
+                            log_scalars=True)
     print(env_id)
     curiosity.train()
 
@@ -514,7 +539,7 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+    os.environ["CUDA_VISIBLE_DEVICES"] = '0'
     env_id_list = ['MontezumaRevengeDeterministic-v4',]# 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'PongDeterministic-v4', 'FreewayDeterministic-v4']
     #env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v1' ]
     #for i in range(5):

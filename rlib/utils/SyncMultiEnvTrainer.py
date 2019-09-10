@@ -135,12 +135,12 @@ class SyncMultiEnvTrainer(object):
                 self.validation_summary(t,l,start,render)
                 start = time.time()
             
-            if self.save_freq > 0 and  t % self.save_freq // batch_size == 0: 
+            if self.save_freq > 0 and  t % (self.save_freq // batch_size) == 0: 
                 self.s += 1
                 self.save(self.s)
                 print('saved model')
             
-            if self.target_freq > 0 and t % self.target_freq // batch_size == 0: # update target network (for value based learning e.g. DQN)
+            if self.target_freq > 0 and t % (self.target_freq // batch_size) == 0: # update target network (for value based learning e.g. DQN)
                 self.update_target()
 
             self.t +=1

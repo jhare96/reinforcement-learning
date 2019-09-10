@@ -4,7 +4,7 @@ import scipy
 import random
 import time
 import copy
-from networks import conv_layer, mlp_layer
+from rlib.networks.networks import conv_layer, mlp_layer
 
 
 class MLP(object):

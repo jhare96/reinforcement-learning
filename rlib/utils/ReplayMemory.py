@@ -36,15 +36,15 @@ class FrameBuffer(object):
 
 
 class NumpyReplayMemory(object):
-    def __init__(self, size, width, height, stack):
+    def __init__(self, replaysize, shape):
         self._idx = 0
         self._full_flag = False
-        self._replay_length = size
-        self._states = np.zeros((size,width,height,stack), dtype=np.uint8)
-        self._actions = np.zeros((size), dtype=np.int)
-        self._rewards = np.zeros((size), dtype=np.int)
-        self._next_states = np.zeros((size,width,height,stack), dtype=np.uint8)
-        self._dones = np.zeros((size), dtype=np.int)
+        self._replay_length = replaysize
+        self._states = np.zeros((replaysize,*shape), dtype=np.uint8)
+        self._actions = np.zeros((replaysize), dtype=np.int)
+        self._rewards = np.zeros((replaysize), dtype=np.int)
+        self._next_states = np.zeros((replaysize,*shape), dtype=np.uint8)
+        self._dones = np.zeros((replaysize), dtype=np.int)
         #self._stacked_frames = deque([np.zeros((width,height), dtype=np.uint8) for i in range(stack)], maxlen=stack)
     
     def addMemory(self,state,action,reward,next_state,done):

@@ -6,6 +6,7 @@ import gym
 from rlib.networks.networks import *
 from rlib.utils.VecEnv import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.utils.utils import fold_batch
 
 #os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 
@@ -58,8 +59,8 @@ class PPO(object):
             
             
             self.loss =  policy_loss + value_coeff * value_loss - entropy_coeff * entropy
-            optimiser = tf.train.AdamOptimizer(lr)
-            #optimiser = tf.train.RMSPropOptimizer(lr, decay=0.9, epsilon=1e-5)
+            #optimiser = tf.train.AdamOptimizer(lr)
+            optimiser = tf.train.RMSPropOptimizer(lr, decay=0.9, epsilon=1e-5)
 
             self.weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name)
             grads = tf.gradients(self.loss, self.weights)
@@ -185,7 +186,7 @@ class PPO_Trainer(SyncMultiEnvTrainer):
 
 def main(env_id, Atari=True):
     num_envs = 32
-    nsteps = 128
+    nsteps = 512
 
     env = gym.make(env_id)
     #action_size = env.action_space.n
@@ -218,8 +219,8 @@ def main(env_id, Atari=True):
     
 
     current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
-    train_log_dir = 'logs/RND/' + env_id + '/' + current_time
-    model_dir = "models/RND/" + env_id + '/' + current_time
+    train_log_dir = 'logs/PPO/' + env_id + '/RMSprop/' + current_time
+    model_dir = "models/PPO/" + env_id + '/' + current_time
     
 
     ac_cnn_args = {'conv1_size':32, 'conv2_size':64, 'conv3_size':64, 'dense_size':512}
@@ -233,14 +234,15 @@ def main(env_id, Atari=True):
     ac_mlp_args = {'dense_size':64}
 
     
-    model = PPO(nature_cnn,
+    model = PPO(mlp,
                 input_shape = input_size,
                 action_size = action_size,
-                lr=1e-4,
-                lr_final=1e-4,
+                lr=1e-3,
+                lr_final=1e-3,
                 decay_steps=50e6//(num_envs*nsteps),
                 grad_clip=0.5,
                 value_coeff=0.5,
+                entropy_coeff=1.0,
                 name='Policy')
                  #'activation':tf.nn.leaky_relu
     
@@ -251,15 +253,15 @@ def main(env_id, Atari=True):
                             log_dir = train_log_dir,
                             val_envs = val_envs,
                             train_mode = 'nstep',
-                            total_steps = 50e6,
+                            total_steps = 2e6,
                             nsteps = nsteps,
                             num_epochs=4,
-                            num_minibatches=4,
-                            validate_freq = 1e6,
+                            num_minibatches=8,
+                            validate_freq = 4e4,
                             save_freq = 0,
                             render_freq = 0,
                             num_val_episodes = 50,
-                            log_scalars=True,
+                            log_scalars=False,
                             gpu_growth=False)
     curiosity.train()
     
@@ -270,8 +272,8 @@ def main(env_id, Atari=True):
 
 if __name__ == "__main__":
     env_id_list = ['FreewayDeterministic-v4']# 'SpaceInvadersDeterministic-v4',]# , ]
-    #env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v1' ]
-    #for i in range(5):
-    for env_id in env_id_list:
-        main(env_id)
+    env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v1', ]
+    for i in range(5):
+        for env_id in env_id_list:
+            main(env_id)
             

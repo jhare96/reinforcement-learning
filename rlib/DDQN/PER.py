@@ -1,13 +1,13 @@
 import tensorflow as tf 
 import numpy as np 
 import gym
-from Qvalue import mlp_layer, conv_layer
-from SyncMultiEnvTrainer import SyncMultiEnvTrainer
-from VecEnv import*
-from SyncDQN import DQN
-from networks import*
+from rlib.DDQN.Qvalue import mlp_layer, conv_layer
+from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.utils.VecEnv import*
+from rlib.DDQN.SyncDQN import DQN
+from rlib.networks.networks import*
 from collections import deque
-from ReplayMemory import NumpyReplayMemory
+from rlib.utils.ReplayMemory import NumpyReplayMemory
 import time
 
 class NumpyPER(object):
@@ -127,14 +127,16 @@ class DQN(object):
         self.sess = sess
 
 class SyncDDQN(SyncMultiEnvTrainer):
-    def __init__(self, envs, model, target_model, file_loc, val_envs, action_size,
-                     train_mode='nstep', total_steps=1000000, nsteps=5,
+    def __init__(self, envs, model, target_model,  val_envs, action_size,
+                     log_dir='logs/PER/', model_dir='models/PER/', train_mode='nstep', total_steps=1000000, nsteps=5,
                      validate_freq=0, save_freq=0, render_freq=0, update_target_freq=10000,
-                     epsilon_start=1, epsilon_final=0.01, epsilon_steps = 1e6, epsilon_test=0.01):
+                     epsilon_start=1, epsilon_final=0.01, epsilon_steps=1e6, epsilon_test=0.01,
+                     log_scalars=True):
 
         
-        super().__init__(envs=envs, model=model, file_loc=file_loc, val_envs=val_envs, train_mode=train_mode, total_steps=total_steps,
-                         nsteps=nsteps, validate_freq=validate_freq, save_freq=save_freq, render_freq=render_freq, update_target_freq=update_target_freq)
+        super().__init__(envs=envs, model=model, log_dir=log_dir, model_dir=model_dir, val_envs=val_envs, train_mode=train_mode, total_steps=total_steps,
+                         nsteps=nsteps, validate_freq=validate_freq, save_freq=save_freq, render_freq=render_freq, update_target_freq=update_target_freq,
+                         log_scalars=log_scalars)
         
         print('validate freq', self.validate_freq)
         print('target freq', self.target_freq)
@@ -368,20 +370,22 @@ def main(env_id):
     DDQN = SyncDDQN(envs = envs,
                     model = Q,
                     target_model = TargetQ,
-                    file_loc = [model_dir, train_log_dir],
+                    model_dir = model_dir,
+                    log_dir = train_log_dir,
                     val_envs = val_envs,
                     action_size = action_size,
                     train_mode ='nstep',
                     total_steps = 5e6,
                     nsteps = nsteps,
-                    validate_freq = 1e5,
+                    validate_freq = 4e4,
                     save_freq = 0,
                     render_freq = 0,
                     update_target_freq = 10000,
                     epsilon_start = 1,
                     epsilon_final = 0.01,
                     epsilon_steps = 2e6,
-                    epsilon_test = 0.01)
+                    epsilon_test = 0.01,
+                    log_scalars=False)
     
 
     DDQN.train()

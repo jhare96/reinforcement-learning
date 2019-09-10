@@ -5,21 +5,24 @@ import gym
 import os, time
 import threading
 import scipy
-from rlib.utils.utils import fold_batch, one_hot
 from collections import deque
-from rlib.A2C.A2C import ActorCritic
+
+
+from rlib.utils.utils import fold_batch, one_hot
 from rlib.A2C.ActorCritic import ActorCritic_LSTM
 from rlib.networks.networks import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.VecEnv import*
 
 
+# A2C version of Unsupervised Reinforcement Learning with Auxiliary Tasks (UNREAL) https://arxiv.org/abs/1611.05397
+
 def concat_action_reward(actions, rewards, num_classes):
     concat = one_hot(actions, num_classes)
     concat[:,-1] = rewards   
     return concat  
 
-def AtariEnv_(env, k=4, episodic=True, reset=True, clip_reward=True, Noop=True, time_limit=None):
+def AtariEnv__(env, k=4, episodic=True, reset=True, clip_reward=True, Noop=True, time_limit=None):
     # Wrapper function for Determinsitic Atari env 
     # assert 'Deterministic' in env.spec.id
     if reset:
@@ -44,7 +47,7 @@ def AtariEnv_(env, k=4, episodic=True, reset=True, clip_reward=True, Noop=True, 
 
 
 
-class ActorCritic_LSTM(object):
+class UNREAL_ActorCritic_LSTM(ActorCritic_LSTM):
     def __init__(self, model_head, input_shape, action_size, num_envs, cell_size, entropy_coeff=0.001, value_coeff=0.5,
                  lr=1e-3, lr_final=1e-6, decay_steps=6e5, grad_clip = 0.5, opt=False, **model_head_args):
         self.lr, self.lr_final = lr, lr_final
@@ -64,6 +67,7 @@ class ActorCritic_LSTM(object):
             unfolded_state = tf.reshape(self.dense, shape=[-1, num_envs, dense_size], name='unfolded_state')
         
         with tf.variable_scope('lstm'):
+            # feed previous reward and previous action into lstm 
             self.action_reward = tf.placeholder(tf.float32, shape=[None, num_envs, action_size+1], name='last_action_reward') # [action_t-1, reward_t-1]
             lstm_input = tf.concat([unfolded_state, self.action_reward], axis=2)
             print('lstm input ', lstm_input.get_shape().as_list())
@@ -73,7 +77,6 @@ class ActorCritic_LSTM(object):
 
         with tf.variable_scope('critic'):
             self.V = tf.reshape( mlp_layer(self.lstm_output, 1, name='state_value', activation=None), shape=[-1])
-
         
         with tf.variable_scope("actor"):
             self.policy_distrib = mlp_layer(self.lstm_output, action_size, activation=tf.nn.softmax, name='policy_distribution')
@@ -98,20 +101,13 @@ class ActorCritic_LSTM(object):
         if opt:
             global_step = tf.Variable(0, trainable=False)
             lr = tf.train.polynomial_decay(lr, global_step, decay_steps, end_learning_rate=lr_final, power=1.0, cycle=False, name=None)
-
+            
             optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
-
             
             grads = tf.gradients(self.loss, self.weights)
             grads, _ = tf.clip_by_global_norm(grads, grad_clip)
             grads_vars = list(zip(grads, self.weights))
             self.train_op = optimiser.apply_gradients(grads_vars, global_step=global_step)
-    
-    def get_initial_hidden(self, batch_size):
-        return np.zeros((batch_size, self.cell_size)), np.zeros((batch_size, self.cell_size))
-    
-    def reset_batch_hidden(self, hidden, idxs):
-        return hidden * np.stack([idxs for i in range(self.cell_size)], axis=1)
 
     def forward(self, state, hidden, action_reward):
         mask = np.zeros((1, self.num_envs)) # state = [time, batch, ...]
@@ -119,8 +115,11 @@ class ActorCritic_LSTM(object):
         policy, value, hidden = self.sess.run([self.policy_distrib, self.V, self.hidden_out], feed_dict = feed_dict)
         return policy, value, hidden
 
-    def backprop(self, state, y, a, hidden, dones):
-        feed_dict = {self.state : state, self.R : R, self.actions: a, self.hidden_in[0]:hidden[0], self.hidden_in[1]:hidden[1], self.mask:dones, self.action_reward:action_reward}
+    def backprop(self, state, R, a, hidden, dones, action_reward):
+        feed_dict = {self.state : state, self.R : R, self.actions: a,
+        self.hidden_in[0]:hidden[0], self.hidden_in[1]:hidden[1],
+        self.mask:dones, self.action_reward:action_reward}
+
         *_,l = self.sess.run([self.train_op, self.loss], feed_dict=feed_dict)
         return l
     
@@ -143,9 +142,9 @@ class UnrealA2C(object):
             input_size = (input_shape,)
         
         with tf.variable_scope('ActorCritic', reuse=tf.AUTO_REUSE):
-            self.train_policy = ActorCritic_LSTM(policy_model, input_shape, action_size, num_envs, cell_size, entropy_coeff=entropy_coeff, value_coeff=value_coeff, lr=lr, lr_final=lr, decay_steps=decay_steps, grad_clip=grad_clip, **policy_args)
-            self.validate_policy = ActorCritic_LSTM(policy_model, input_shape, action_size, 1, cell_size, entropy_coeff=entropy_coeff, value_coeff=value_coeff, lr=lr, lr_final=lr, decay_steps=decay_steps, grad_clip=grad_clip, **policy_args)
-            self.replay_policy = ActorCritic_LSTM(policy_model, input_shape, action_size, 1, cell_size, entropy_coeff=entropy_coeff, value_coeff=value_coeff, lr=lr, lr_final=lr, decay_steps=decay_steps, grad_clip=grad_clip, **policy_args)
+            self.train_policy = UNREAL_ActorCritic_LSTM(policy_model, input_shape, action_size, num_envs, cell_size, entropy_coeff=entropy_coeff, value_coeff=value_coeff, lr=lr, lr_final=lr, decay_steps=decay_steps, grad_clip=grad_clip, **policy_args)
+            self.validate_policy = UNREAL_ActorCritic_LSTM(policy_model, input_shape, action_size, 1, cell_size, entropy_coeff=entropy_coeff, value_coeff=value_coeff, lr=lr, lr_final=lr, decay_steps=decay_steps, grad_clip=grad_clip, **policy_args)
+            self.replay_policy = UNREAL_ActorCritic_LSTM(policy_model, input_shape, action_size, 1, cell_size, entropy_coeff=entropy_coeff, value_coeff=value_coeff, lr=lr, lr_final=lr, decay_steps=decay_steps, grad_clip=grad_clip, **policy_args)
 
         with tf.variable_scope('pixel_control', reuse=tf.AUTO_REUSE):
             self.Qaux_batch = self._build_pixel(self.train_policy.lstm_output)
@@ -187,8 +186,8 @@ class UnrealA2C(object):
         
         #global_step = tf.Variable(0, trainable=False)
         #lr = tf.train.polynomial_decay(lr, global_step, decay_steps, end_learning_rate=lr_final, power=1.0, cycle=False, name=None)
-        #self.optimiser = tf.train.RMSPropOptimizer(lr, decay=0.9, epsilon=1e-5)
-        self.optimiser = tf.train.AdamOptimizer(lr)
+        self.optimiser = tf.train.RMSPropOptimizer(lr, decay=0.9, epsilon=1e-5)
+        #self.optimiser = tf.train.AdamOptimizer(lr)
 
         # weights = self.train_policy.weights
         # grads = tf.gradients(self.on_policy_loss, weights)
@@ -508,8 +507,8 @@ def main(env_id, Atari=True):
             reset = False
             print('only stack frames')
         
-        val_envs = [AtariEnv_(gym.make(env_id), k=1, episodic=False, reset=reset, clip_reward=False) for i in range(1)]
-        envs = BatchEnv(AtariEnv_, env_id, num_envs, blocking=False, k=1, reset=reset, episodic=True, clip_reward=True, time_limit=4500)
+        val_envs = [AtariEnv__(gym.make(env_id), k=1, episodic=False, reset=reset, clip_reward=False) for i in range(1)]
+        envs = BatchEnv(AtariEnv__, env_id, num_envs, blocking=False, k=1, reset=reset, episodic=True, clip_reward=True, time_limit=4500)
         
     
     env.close()
@@ -518,8 +517,8 @@ def main(env_id, Atari=True):
     
     
 
-    train_log_dir = 'logs/Unreal/' + env_id + '/'
-    model_dir = "models/Unreal/" + env_id + '/'
+    train_log_dir = 'logs/UnrealA2C/' + env_id + '/'
+    model_dir = "models/UnrealA2C/" + env_id + '/'
 
 
 

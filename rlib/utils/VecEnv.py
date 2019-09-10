@@ -1,35 +1,15 @@
 import numpy as np
 import gym
-#import gym_super_mario_bros
-#from nes_py.wrappers import BinarySpaceToDiscreteSpaceEnv
-#from gym_super_mario_bros.actions import COMPLEX_MOVEMENT
 import multiprocessing as mp
 import threading
 import time
 from PIL import Image
-#from A2C import ActorCritic
-#from networks import*
-import scipy.misc
-import skimage
 import tensorflow as tf
-#from Qvalue import Qvalue
 from itertools import chain
 import matplotlib.pyplot as plt
 from collections import deque
-#import line_profiler
-#profile = line_profiler.LineProfiler()
 
-# def MarioEnv(env, rescale=84, k=4, clip_reward=True, no_reward=False):
-#     env = BinarySpaceToDiscreteSpaceEnv(env, COMPLEX_MOVEMENT)
-#     if clip_reward:
-#         env = ClipRewardEnv(env)
-#     if no_reward:
-#         env = NoRewardEnv(env)
-#     if rescale is not None:
-#         env = RescaleEnv(env, rescale)
-#     if k > 1:
-#         env = StackEnv(env, k)
-#     return env 
+# Code was inspired from or modified from OpenAI baselines https://github.com/openai/baselines/tree/master/baselines/common
 
 def AtariValidate(env):
     env = FireResetEnv(env)
@@ -554,19 +534,5 @@ class ChunkWorker(mp.Process):
                 self.connection.send((1))
                 break
 
-
-
-if __name__ == "__main__":
-    env_id = 'MontezumaRevenge-v4'
-    env = AtariEnv(gym.make(env_id), k=4, time_limit=4500, episodic=True)
-    obs = env.reset()
-    for i in range(4700):
-        action = env.action_space.sample()
-        obs, reward, done, info  = env.step(0)
-        if done:
-            print(i)
-            scipy.misc.imshow(obs[:,:,-1])
-            env.reset()
-            #plt.show()
 
     

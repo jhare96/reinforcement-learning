@@ -11,81 +11,10 @@ from rlib.networks.networks import*
 from rlib.utils.VecEnv import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import fold_batch, stack_many, log_uniform
-
-
-
-
-class ActorCritic(object):
-    def __init__(self, model, input_shape, action_size, entropy_coeff, lr=1e-3, lr_final=0, decay_steps=80e3, grad_clip=0.5, **model_args):
-        self.lr, self.lr_final = lr, lr_final
-        self.decay_steps = decay_steps
-        self.grad_clip = grad_clip
-        self.entropy_coeff = entropy_coeff
-        self.sess = None
-
-        with tf.variable_scope('encoder_network'):
-            self.state = tf.placeholder(tf.float32, shape=[None, *input_shape])
-            print('state shape', self.state.get_shape().as_list())
-            self.dense = model(self.state, **model_args)
-        
-        with tf.variable_scope('critic'):
-            self.V = tf.reshape(mlp_layer(self.dense, 1, name='state_value', activation=None), shape=[-1])
-        
-        with tf.variable_scope("actor"):
-            self.policy_distrib = mlp_layer(self.dense, action_size, activation=tf.nn.softmax, name='policy_distribution')
-            self.actions = tf.placeholder(tf.int32, [None])
-            actions_onehot = tf.one_hot(self.actions,action_size)
-            
-        with tf.variable_scope('losses'):
-            self.R = tf.placeholder(dtype=tf.float32, shape=[None])
-            Advantage = self.R - self.V
-            value_loss = 0.5 * tf.reduce_mean(tf.square(Advantage))
-
-            log_policy = tf.math.log(tf.clip_by_value(self.policy_distrib, 1e-6, 0.999999))
-            log_policy_actions = tf.reduce_sum(tf.multiply(log_policy, actions_onehot), axis=1)
-            policy_loss =  tf.reduce_mean(-log_policy_actions * tf.stop_gradient(Advantage))
-
-            entropy = tf.reduce_mean(tf.reduce_sum(self.policy_distrib * -log_policy, axis=1))
-    
-        
-        #global_step = tf.Variable(0, trainable=False)
-        #lr = tf.train.polynomial_decay(lr, global_step, decay_steps, end_learning_rate=lr_final, power=1.0, cycle=False, name=None)
-
-        
-        
-        self.loss =  policy_loss + 0.5 * value_loss - entropy_coeff * entropy
-        #optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
-        optimiser = tf.train.AdamOptimizer(lr)
-
-        self.weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name)
-        grads = tf.gradients(self.loss, self.weights)
-        grads, _ = tf.clip_by_global_norm(grads, grad_clip)
-        grads_vars = list(zip(grads, self.weights))
-        self.optimiser = optimiser.apply_gradients(grads_vars)
-
-    def forward(self, state):
-        return self.sess.run([self.policy_distrib, self.V], feed_dict = {self.state:state})
-
-    def get_policy(self, state):
-        return self.sess.run(self.policy_distrib, feed_dict = {self.state: state})
-    
-    def get_value(self, state):
-        return self.sess.run(self.V, feed_dict = {self.state: state})
-
-    def backprop(self, state, R, a):
-        *_,l = self.sess.run([self.optimiser, self.loss], feed_dict = {self.state:state, self.R:R, self.actions:a})
-        return l
-    
-    def set_session(self, sess):
-        self.sess = sess
-
-        
-        
-#self, envs, model, file_loc, val_envs, train_mode='nstep', total_steps=1000000, nsteps=5, 
-                    # validate_freq=1e6, save_freq=0, render_freq=0, update_target_freq = 10000)
+from rlib.A2C.ActorCritic import ActorCritic
 
 class A2C(SyncMultiEnvTrainer):
-    def __init__(self, envs, model, val_envs, train_mode='nstep', return_type='nstep', log_dir='logs/', model_dir='models/', total_steps=10000, nsteps=5, gamma=0.99, lambda_=0.95,
+    def __init__(self, envs, model, val_envs, train_mode='nstep', return_type='nstep', log_dir='logs/A2C', model_dir='models/A2C', total_steps=10000, nsteps=5, gamma=0.99, lambda_=0.95,
                  validate_freq=1e6, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True, gpu_growth=True):
         
         super().__init__(envs, model, val_envs, log_dir=log_dir, model_dir=model_dir, train_mode=train_mode, return_type=return_type, total_steps=total_steps, nsteps=nsteps,
@@ -149,32 +78,21 @@ class A2C(SyncMultiEnvTrainer):
                 score = self.validate(5,2000,render)
                 tot_steps = t*self.num_envs
                 print("update %i, validation score %f, total steps %i, loss %f" %(t,score,tot_steps,l))
-                sumscore, sumloss = self.sess.run([tf_sum_epScore, tf_sum_epLoss], feed_dict = {tf_epScore:score, tf_epLoss:l})
-                self.train_writer.add_summary(sumloss, tot_steps)
-                self.train_writer.add_summary(sumscore, tot_steps)
+                if self.log_scalars:
+                    sumscore, sumloss = self.sess.run([tf_sum_epScore, tf_sum_epLoss], feed_dict = {tf_epScore:score, tf_epLoss:l})
+                    self.train_writer.add_summary(sumloss, tot_steps)
+                    self.train_writer.add_summary(sumscore, tot_steps)
 
        
-
-
-
-
-
-
-
-    
-
-
-
-
-def main(env_id,lr,entropy):
+def main(env_id):
     
     num_envs = 32
-    nsteps = 5
+    nsteps = 20
     
     current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
 
-    train_log_dir = 'logs/A2C/' + env_id +'/n-step/hyper_search/' + current_time 
-    model_dir = "models/A2C/" + env_id + '/n-step/hyper_search/' + current_time 
+    train_log_dir = 'logs/A2C/' + env_id +'/GAE/' + current_time 
+    model_dir = "models/A2C/" + env_id + '/GAE/' + current_time 
     
     env = gym.make(env_id)
     action_size = env.action_space.n
@@ -207,24 +125,15 @@ def main(env_id,lr,entropy):
 
     env.close()
     print('action space', action_size)
-    
+
 
     
-    
-    
-    ac_cnn_args = {'input_shape':[84,84,4], 'action_size':action_size,  'lr':1e-3, 'grad_clip':0.5, 'decay_steps':50e6/(num_envs*nsteps),
-                    'conv1_size':32, 'conv2_size':64, 'conv3_size':64, 'dense_size':512}
-    
-   
-    ac_mlp_args = {'input_shape':input_size, 'dense_size':64, 'num_layers':2, 'action_size':action_size, 'lr':1e-3, 'grad_clip':0.5, 'decay_steps':5e6//(num_envs*nsteps), 'lr_final':0}
-
-    
-    model = ActorCritic(mlp,
+    model = ActorCritic(nature_cnn,
                         input_size,
                         action_size,
-                        lr=lr,
-                        lr_final=lr,
-                        entropy_coeff=entropy,
+                        lr=1e-3,
+                        lr_final=1e-3,
+                        entropy_coeff=10,
                         decay_steps=50e6//(num_envs*nsteps),
                         grad_clip=0.5) 
     
@@ -235,13 +144,13 @@ def main(env_id,lr,entropy):
               log_dir = train_log_dir,
               val_envs = val_envs,
               train_mode = 'nstep',
-              return_type = 'nstep',
-              total_steps = 2e6,
+              return_type = 'GAE',
+              total_steps = 50e6,
               nsteps = nsteps,
-              validate_freq = 4e4,
+              validate_freq = 1e6,
               save_freq = 0,
               render_freq = 0,
-              num_val_episodes = 30,
+              num_val_episodes = 50,
               log_scalars = True,
               gpu_growth = True)
 
@@ -256,13 +165,8 @@ def main(env_id,lr,entropy):
 
 
 if __name__ == "__main__":
-    #os.environ["CUDA_VISIBLE_DEVICES"] = '0'
     env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
     #env_id_list = ['MontezumaRevengeDeterministic-v4']
-    env_id_list = ['CartPole-v1', 'MountainCar-v0', 'Acrobot-v1', ]
-    for i in range(25):
-        lr = log_uniform(1e-5,1e-2)
-        entropy = log_uniform(0.001,1)
-        for env_id in env_id_list:
-            print(env_id, lr, entropy)
-            main(env_id,lr,entropy)
+    #env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v1', ]
+    for env_id in env_id_list:
+        main(env_id)

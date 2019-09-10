@@ -3,30 +3,23 @@ import tensorflow as tf
 import numpy as np
 import scipy 
 import time
-##Kautenja super mario bros
-#from nes_py.wrappers import BinarySpaceToDiscreteSpaceEnv
-#import gym_super_mario_bros
-#from gym_super_mario_bros.actions import COMPLEX_MOVEMENT
-#import multiprocessing as mp
-#import resource
 import sys, os, datetime
 from collections import deque
 
 from rlib.utils.VecEnv import *
-from rlib.ReplayMemory import replayMemory, FrameBuffer, NumpyReplayMemory
-from Qvalue import Qvalue, MLP
-#os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-#os.environ["TF_CUDNN_USE_AUTOTUNE"] = "0"
+from rlib.utils.ReplayMemory import replayMemory, FrameBuffer, NumpyReplayMemory
+from rlib.DDQN.Qvalue import Qvalue, MLP
 
 
     
 class DoubleDQN(object):
-    def __init__(self, Qvalue_type, *Qvalue_args, env, file_loc, action_size, train_freq, replay_length, mini_batch_size=32, gamma=0.99,
+    def __init__(self, Qvalue_type, *Qvalue_args, env, action_size, train_freq, replay_length, mini_batch_size=32, gamma=0.99,
                  total_steps=50e6, save=True, epsilon_start=1.0, epsilon_final=0.1, epsilon_steps=1e6, update_target_freq=10000, validate_freq=1e5,
-                 model_dir='logs/DDQN/', modelname='DDQN'):
+                 model_dir='models/DDQN/', log_dir='logs/DDQN/', log_scalars=True):
         self.image_size, self.num_stacked = Qvalue_args[:2]
         self.save = save
         self.train_freq = train_freq
+        self.log_scalars = log_scalars
         self.action_size = action_size
         self.env = env
         if Qvalue_type.lower() == "cnn":
@@ -44,9 +37,6 @@ class DoubleDQN(object):
 
         config = tf.ConfigProto() #GPU 
         config.gpu_options.allow_growth=True #GPU
-        #gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.85)
-        #self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
-        #config = tf.ConfigProto(device_count = {'GPU': 0}) #CPU ONLY
         self.sess = tf.Session(config=config)
 
         self.gamma = gamma
@@ -61,20 +51,20 @@ class DoubleDQN(object):
 
 
         self.model_dir = model_dir
-        self.modelname = modelname
 
-        current_time = datetime.datetime.now().strftime("%y-%m-%d_%H-%M-%S")
-        train_log_dir = train_log_dir + current_time + '/train'
-        
-        tf_epLoss = tf.compat.v1.placeholder('float',name='epsiode_loss')
-        tf_epReward =  tf.compat.v1.placeholder('float',name='episode_reward')
-        self.tf_placeholders = (tf_epLoss,tf_epReward)
+        if log_scalars:
+            current_time = datetime.datetime.now().strftime("%y-%m-%d_%H-%M-%S")
+            train_log_dir = log_dir + current_time + '/train'
+            
+            tf_epLoss = tf.placeholder('float',name='epsiode_loss')
+            tf_epReward =  tf.placeholder('float',name='episode_reward')
+            self.tf_placeholders = (tf_epLoss,tf_epReward)
 
-        tf_sum_epLoss = tf.compat.v1.summary.scalar('epsiode_loss', tf_epLoss)
-        tf_sum_epReward = tf.compat.v1.summary.scalar('episode_reward', tf_epReward)
-        self.tf_summary_scalars= (tf_sum_epLoss,tf_sum_epReward)
-        
-        self.train_writer = tf.compat.v1.summary.FileWriter(train_log_dir, self.sess.graph)
+            tf_sum_epLoss = tf.summary.scalar('epsiode_loss', tf_epLoss)
+            tf_sum_epReward = tf.summary.scalar('episode_reward', tf_epReward)
+            self.tf_summary_scalars= (tf_sum_epLoss,tf_sum_epReward)
+            
+            self.train_writer = tf.summary.FileWriter(train_log_dir)
 
         
 
@@ -218,16 +208,16 @@ class DoubleDQN(object):
             if np.random.uniform() < self.epsilon:
                 action = env.action_space.sample()
             else:
-                state_action = self.Q.forward(self.sess,state)
-                action = np.argmax(state_action)
+                state_action = self.Q.forward(self.sess,state)[0]
+                action = int(np.argmax(state_action))
             
             next_state, reward, done, info = env.step(action)
 
-            if info['ale.lives'] < lives:
-                terminal = True
-            else:
-                lives = info['ale.lives']
-                terminal = done
+            # if info['ale.lives'] < lives:
+            #     terminal = True
+            # else:
+            #     lives = info['ale.lives']
+            #     terminal = done
             
             episode_score.append(reward)
             reward = np.clip(reward,-1,1)
@@ -251,20 +241,21 @@ class DoubleDQN(object):
                 avg_loss = np.mean(episode_loss)
                 score = self.validate(env,20)
                 time_taken = time.time()-start
-                fps = update_freq / time_taken
-                print(update_freq, " frames time taken: ", time_taken, ', fps:', fps)
+                fps = self.update_freq / time_taken
+                #print(self.update_freq, " frames time taken: ", time_taken, ', fps:', fps)
                 print('Episode %s, total_step %i, validation score %f, epsilon %f, average_loss %f, fps %f'
                     %(episode, t, score, self.epsilon, avg_loss , fps))
-                sumscore, sumloss = self.sess.run([tf_sum_epScore, tf_sum_epLoss], feed_dict = {tf_epScore:score, tf_epLoss:avg_loss})
-                self.train_writer.add_summary(sumloss, t)
-                self.train_writer.add_summary(sumscore, t)
+                if self.log_scalars:
+                    sumscore, sumloss = self.sess.run([tf_sum_epScore, tf_sum_epLoss], feed_dict = {tf_epScore:score, tf_epLoss:avg_loss})
+                    self.train_writer.add_summary(sumloss, t)
+                    self.train_writer.add_summary(sumscore, t)
                 start = time.time()
 
             if t % self.update_freq == 0 and t > 0:
                 self.sess.run([self.update_weights])
-                print("updated Target network")
+                #print("updated Target network")
                 if self.save:
-                    self.saver.save(self.sess, str(model_dir + modelname + ".ckpt") )
+                    self.saver.save(self.sess, str(self.model_dir + ".ckpt") )
             
             
                 
@@ -276,20 +267,37 @@ def main():
     
     #env = gym_super_mario_bros.make('SuperMarioBros-1-1-v0')
     #env = BinarySpaceToDiscreteSpaceEnv(env, COMPLEX_MOVEMENT)
-    env = AtariEnv(gym.make('PongDeterministic-v4'), k=4, episodic=False, reset=True, clip_reward=True, Noop=True)
+    #env = AtariEnv(gym.make('PongDeterministic-v4'), k=4, episodic=False, reset=True, clip_reward=True, Noop=True)
     env = gym.make('MountainCar-v0')
     env.reset()
     env.render()
     print(env.action_space)
     CNN_para = [84,4,32,64,64,512]
-    MLP_para = [4,64,64]
-    DQN = DoubleDQN("MLP", *MLP_para, env=env, action_size=6, train_freq=4, replay_length=500000, mini_batch_size=32)
-    
+    MLP_para = [2,64,64]
     model_dir = "models/DDQN/"
-    modelname = "DDQN_ABC"
-    DQN.load_weights(modelname, model_dir)
-    DQN.train(env,int(5e6+1),)
-    DQN.validate(env,20)
+    log_dir = 'logs/DDQN/'
+    DQN = DoubleDQN("MLP", *MLP_para,
+                    env=env,
+                    model_dir=model_dir,
+                    log_dir=log_dir,
+                    action_size=3,
+                    train_freq=4,
+                    replay_length=5000,
+                    mini_batch_size=32,
+                    total_steps=50e6,
+                    save=False,
+                    epsilon_start=1.0,
+                    epsilon_final=0.1,
+                    epsilon_steps=1e6,
+                    update_target_freq=1000,
+                    validate_freq=4e4)
+    
+    #load pretrained model
+    # modelname = 'models/DDQN/'
+    # DQN.load_weights(modelname, model_dir)
+    
+    DQN.train()
+    DQN.validate(env,200)
 
 if __name__== "__main__":
     main()

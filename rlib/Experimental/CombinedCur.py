@@ -2,25 +2,24 @@ import tensorflow as tf
 import numpy as np
 import scipy
 import gym
-import os
-import time, datetime
+import os, time
 import threading
+from collections import OrderedDict
+#from rlib.A2C.A2C import ActorCritic
 from rlib.networks.networks import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.VecEnv import*
-from rlib.utils.utils import stack_many, fold_batch, unfold_batch, one_hot, RunningMeanStd
-from collections import OrderedDict
-import matplotlib.pyplot as plt 
-#from .OneNetCuriosity import Curiosity_onenet
-#os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
+from rlib.utils.utils import fold_batch, unfold_batch, one_hot, stack_many, RunningMeanStd
+from rlib.RND.RND import predictor_cnn, predictor_mlp, PPO
+
+os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
 
 class rolling_obs(object):
-    def __init__(self, shape=(), lastFrame=False):
+    def __init__(self, shape=()):
         self.rolling = RunningMeanStd(shape=shape)
-        self.lastFrame = lastFrame
     
     def update(self, x):
-        if self.lastFrame: # assume image obs 
+        if len(x.shape) == 5: # assume image obs 
             return self.rolling.update(fold_batch(x[...,-1:])) #[time,batch,height,width,stack] -> [height, width,1]
         else:
             return self.rolling.update(fold_batch(x)) #[time,batch,*shape] -> [*shape]
@@ -34,33 +33,103 @@ class RewardForwardFilter(object):
             self.rewems = rews
         else:
             self.rewems = self.rewems * self.gamma + rews
-        return self.rewems      
+        return self.rewems  
+
+class ActorCritic(object):
+    def __init__(self, model_head, input_shape, action_size, intr_coeff=0.5, extr_coeff=1.0, value_coeff=0.5, entropy_coeff=0.01,
+                 lr=1e-3, lr_final=1e-6, decay_steps=6e5, grad_clip = 0.5, opt=False, **model_head_args):
+        self.lr, self.lr_final = lr, lr_final
+        self.decay_steps = decay_steps
+        self.grad_clip = grad_clip
+        self.intr_coeff, self.extr_coeff = intr_coeff, extr_coeff
+        self.sess = None
+
+        with tf.variable_scope('input'):
+            self.state = tf.placeholder(tf.float32, shape=[None, *input_shape], name='time_batch_state') # [time*batch, *input_shape]
+
+        with tf.variable_scope('encoder_network'):
+            self.dense = model_head(self.state, **model_head_args)
+
+        with tf.variable_scope('extr_critic'):
+            self.Ve = tf.reshape( mlp_layer(self.dense, 1, name='state_value_extr', activation=None), shape=[-1])
+
+        with tf.variable_scope('intr_critic'):
+            self.Vi = tf.reshape( mlp_layer(self.dense, 1, name='state_value_intr', activation=None), shape=[-1])
+        
+        with tf.variable_scope("actor"):
+            self.policy_distrib = mlp_layer(self.dense, action_size, activation=tf.nn.softmax, name='policy_distribution')
+            self.actions = tf.placeholder(tf.int32, [None])
+            actions_onehot = tf.one_hot(self.actions,action_size)
+            
+        with tf.variable_scope('losses'):
+            self.R_extr = tf.placeholder(dtype=tf.float32, shape=[None])
+            extr_value_loss = 0.5 * tf.reduce_mean(tf.square(self.R_extr - self.Ve))
+
+            self.R_intr = tf.placeholder(dtype=tf.float32, shape=[None])
+            intr_value_loss = 0.5 * tf.reduce_mean(tf.square(self.R_intr - self.Vi))
+
+            self.Advantage = tf.placeholder(dtype=tf.float32, shape=[None])
+            log_policy = tf.math.log(tf.clip_by_value(self.policy_distrib, 1e-6, 0.999999))
+            log_policy_actions = tf.reduce_sum(tf.multiply(log_policy, actions_onehot), axis=1)
+            policy_loss =  tf.reduce_mean(-log_policy_actions * self.Advantage)
+
+            entropy = tf.reduce_mean(tf.reduce_sum(self.policy_distrib * -log_policy, axis=1))
+    
+        self.weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name)
+
+        self.loss =  policy_loss + value_coeff * (extr_value_loss + intr_value_loss) - entropy_coeff * entropy
+
+        if opt:
+            global_step = tf.Variable(0, trainable=False)
+            tf.train.polynomial_decay(lr, global_step, decay_steps, end_learning_rate=lr_final, power=1.0, cycle=False, name=None)
+
+            optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
+
+            
+            grads = tf.gradients(self.loss, self.weights)
+            grads, _ = tf.clip_by_global_norm(grads, grad_clip)
+            grads_vars = list(zip(grads, self.weights))
+            self.train_op = optimiser.apply_gradients(grads_vars, global_step=global_step)
+    
+    def forward(self, state):
+        feed_dict = {self.state:state}
+        policy, value_extr, value_intr = self.sess.run([self.policy_distrib, self.Ve, self.Vi], feed_dict = feed_dict)
+        return policy, value_extr, value_intr
+
+    def backprop(self, state, R, a):
+        feed_dict = {self.state : state, self.R : R, self.actions: a}
+        *_,l = self.sess.run([self.train_op, self.loss], feed_dict=feed_dict)
+        return l
+    
+    def set_session(self, sess):
+        self.sess = sess
+
 
 class ICM(object):
-    def __init__(self, model_head, state, input_shape, action_size, **model_head_args):    
+    def __init__(self, model_head, input_shape, action_size, reuse=False, **model_head_args):    
             
         print('input_Shape', input_shape)
-        #self.state = tf.placeholder(tf.float32, shape=[None, *input_shape], name="state")
+        self.state = tf.placeholder(tf.float32, shape=[None, *input_shape], name="state")
         self.next_state = tf.placeholder(tf.float32, shape=[None, *input_shape], name="next_state")
 
         if len(input_shape) == 3: # image observation
-            next_state_shape = input_shape[:-1] + (1,)
+            stats_state_shape = input_shape[:-1] + (1,)
         else: 
-            next_state_shape = input_shape
+            stats_state_shape = input_shape
 
-        self.state_mean = tf.placeholder(tf.float32, shape=[*next_state_shape], name="mean")
-        self.state_std = tf.placeholder(tf.float32, shape=[*next_state_shape], name="std")
-        norm_state = tf.clip_by_value((state - self.state_mean) / self.state_std, -5, 5)
+        self.state_mean = tf.placeholder(tf.float32, shape=[*stats_state_shape], name="mean")
+        self.state_std = tf.placeholder(tf.float32, shape=[*stats_state_shape], name="std")
+        norm_state = tf.clip_by_value((self.state - self.state_mean) / self.state_std, -5, 5)
         norm_next_state = tf.clip_by_value((self.next_state - self.state_mean) / self.state_std, -5, 5)
         
         self.action = tf.placeholder(tf.int32, shape=[None], name="actions")
         action_onehot = tf.one_hot(self.action, action_size)
 
-        with tf.variable_scope('encoder_network', reuse=False):
+
+        with tf.variable_scope('encoder_network', reuse=reuse):
             self.phi1 = model_head(norm_state,  **model_head_args)
         with tf.variable_scope('encoder_network', reuse=True):
             self.phi2 = model_head(norm_next_state,  **model_head_args)
-        
 
         with tf.variable_scope('Forward_Model'):
             state_size = self.phi1.get_shape()[1].value
@@ -68,7 +137,7 @@ class ICM(object):
             f1 = mlp_layer(concat, state_size, activation=tf.nn.relu, name='foward_model')
             pred_state = mlp_layer(f1, state_size, activation=None, name='pred_state')
             print('pred_state', pred_state.get_shape().as_list(), 'phi_2', self.phi2.get_shape().as_list())
-            self.intr_reward = tf.reduce_mean(tf.square(pred_state - self.phi2), axis=1)# l2 distance metric ‖ˆφ(st+1)−φ(st+1)‖22
+            self.intr_reward = tf.reduce_mean(tf.square(pred_state - self.phi2), axis=1)# l2 distance metric ‖ˆφ(st+1)−φ(st+1)‖2
             self.forward_loss =  tf.reduce_mean(self.intr_reward) # intr_reward batch loss 
             print('forward_loss', self.forward_loss.get_shape().as_list())
         
@@ -80,91 +149,31 @@ class ICM(object):
             print('pred_action', pred_action.get_shape().as_list(), 'inverse_loss', self.inverse_loss.get_shape().as_list())
         
         self.weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name)
-        #exit()
 
-class PPO(object):
-    def __init__(self, model, input_shape, action_size, value_coeff=1.0, entropy_coeff=0.001, extr_coeff=2.0, intr_coeff=1.0, lr=1e-3, lr_final=0, decay_steps=6e5, grad_clip=0.5, optimiser=False, **model_args):
-        self.lr, self.lr_final = lr, lr_final
-        self.value_coeff, self.entropy_coeff = value_coeff, entropy_coeff
-        self.decay_steps = decay_steps
-        self.grad_clip = grad_clip
-        self.policy_clip = 0.1
-        self.sess = None
-        with tf.variable_scope('encoder_network'):
-            self.state = tf.placeholder(tf.float32, shape=[None, *input_shape])
-            print('state shape', self.state.get_shape().as_list())
-            self.dense = model(self.state, **model_args)
+class RND(object):
+    def __init__(self, input_shape, target_model, RND_args={}):
+        next_state_shape = input_shape[:-1] + (1,) if len(input_shape) == 3 else input_shape
+
+        self.next_state = tf.placeholder(tf.float32, shape=[None, *next_state_shape], name='next_state')
+        self.state_mean = tf.placeholder(tf.float32, shape=[*next_state_shape], name="mean")
+        self.state_std = tf.placeholder(tf.float32, shape=[*next_state_shape], name="std")
+        norm_next_state = tf.clip_by_value((self.next_state - self.state_mean) / self.state_std, -5, 5)
+
+        with tf.variable_scope('target_model'):
+            target_state = target_model(norm_next_state, trainable=False, **RND_args)
         
-        with tf.variable_scope('extr_critic'):
-            self.Ve = tf.reshape(mlp_layer(self.dense, 1, name='extr_value', activation=None), shape=[-1])
+        with tf.variable_scope('predictor_model'):
+            pred_next_state = target_model(norm_next_state, **RND_args)
+            self.intr_reward = tf.reduce_mean(tf.square(pred_next_state - tf.stop_gradient(target_state)), axis=-1)
+            self.feat_loss = tf.reduce_mean(self.intr_reward)  
         
-        with tf.variable_scope('intr_critic'):
-            self.Vi = tf.reshape(mlp_layer(self.dense, 1, name='intr_value', activation=None), shape=[-1])
-        
-        with tf.variable_scope("actor"):
-            self.policy_distrib = mlp_layer(self.dense, action_size, activation=tf.nn.softmax, name='policy_distribution')+ 1e-10
-            self.actions = tf.placeholder(tf.int32, [None])
-            actions_onehot = tf.one_hot(self.actions,action_size)
-            
-        with tf.variable_scope('losses'):
-            self.old_policy = tf.placeholder(dtype=tf.float32, shape=[None, action_size], name='old_policies') 
-            self.R_extr = tf.placeholder(dtype=tf.float32, shape=[None])
-            self.R_intr = tf.placeholder(dtype=tf.float32, shape=[None])
-
-            extr_value_loss = 0.5 * tf.reduce_mean(tf.square(self.R_extr - self.Ve))
-            intr_value_loss = 0.5 * tf.reduce_mean(tf.square(self.R_intr - self.Vi))
-
-            policy_actions = tf.reduce_sum(tf.multiply(self.policy_distrib, actions_onehot), axis=1)
-            old_policy_actions = tf.reduce_sum(tf.multiply(self.old_policy, actions_onehot), axis=1)
-            
-            self.Advantage = tf.placeholder(dtype=tf.float32, shape=[None], name='Adv')
-
-            ratio = policy_actions / old_policy_actions
-
-            policy_loss_unclipped = ratio * -self.Advantage
-            policy_loss_clipped = tf.clip_by_value(ratio, 1 - self.policy_clip , 1 + self.policy_clip) * -self.Advantage
-
-            policy_loss = tf.reduce_mean(tf.math.maximum(policy_loss_unclipped, policy_loss_clipped))
-
-            entropy = tf.reduce_mean(tf.reduce_sum(self.policy_distrib * -tf.math.log(self.policy_distrib), axis=1))
-    
-        self.loss =  policy_loss + value_coeff * (extr_value_loss + intr_value_loss) - entropy_coeff * entropy
-        self.weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name)
-        
-        if optimiser:
-            global_step = tf.Variable(0, trainable=False)
-            lr = tf.train.polynomial_decay(lr, global_step, decay_steps, end_learning_rate=lr_final, power=1.0, cycle=False, name=None)
-            optimiser = tf.train.RMSPropOptimizer(lr, decay=0.9, epsilon=1e-5)
-            grads = tf.gradients(self.loss, self.weights)
-            grads, _ = tf.clip_by_global_norm(grads, grad_clip)
-            grads_vars = list(zip(grads, self.weights))
-            self.train_op = optimiser.apply_gradients(grads_vars, global_step=global_step)
-
-    def forward(self, state):
-        return self.sess.run([self.policy_distrib, self.Ve, self.Vi], feed_dict = {self.state:state})
-
-    def get_policy(self, state):
-        return self.sess.run(self.policy_distrib, feed_dict = {self.state: state})
-    
-    def get_values(self, state):
-        return self.sess.run([self.Ve, self.Vi] , feed_dict = {self.state: state})
-
-    def backprop(self, state, R_extr, R_intr, Adv, a, old_policy):
-        feed_dict = {self.state : state, self.R_extr:R_extr, self.R_intr:R_intr,
-                     self.Advantage:Adv, self.actions:a,
-                     self.old_policy:old_policy}
-        *_,l = self.sess.run([self.train_op, self.loss], feed_dict=feed_dict)
-        return l
-    
-    def set_session(self, sess):
-        self.sess = sess
-
+        self.weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='predictor_model')
 
 class Curiosity(object):
-    def __init__(self,  policy_model, ICM_model, input_shape, action_size, forward_model_scale, policy_importance, reward_scale, value_coeff, entropy_coeff, extr_coeff, intr_coeff, lr=1e-3, lr_final=1e-3, decay_steps=6e5, grad_clip = 0.5, policy_args ={}, ICM_args={}):
+    def __init__(self,  policy_model, ICM_model, RND_model, input_shape, action_size, forward_model_scale, policy_importance, reward_scale, intr_coeff, extr_coeff=1.0, value_coeff=0.5, entropy_coeff=0.001, lr=1e-3, lr_final=1e-3, decay_steps=6e5, grad_clip = 0.5, policy_args ={}, ICM_args={}, RND_args={}):
+        self.reward_scale, self.forward_model_scale, self.policy_importance = reward_scale, forward_model_scale, policy_importance
         self.intr_coeff, self.extr_coeff =  intr_coeff, extr_coeff
         self.value_coeff, self.entropy_coeff = value_coeff, entropy_coeff
-        self.reward_scale, self.forward_model_scale, self.policy_importance = reward_scale, forward_model_scale, policy_importance
         self.lr, self.lr_final, self.decay_steps = lr, lr_final, decay_steps
         self.grad_clip = grad_clip
         self.action_size = action_size
@@ -175,22 +184,18 @@ class Curiosity(object):
             input_shape = (input_shape,)
         
         with tf.variable_scope('Policy'):
-            self.policy = PPO(policy_model,
-                              input_shape,
-                              action_size,
-                              value_coeff=value_coeff,
-                              entropy_coeff=entropy_coeff,
-                              extr_coeff=extr_coeff,
-                              intr_coeff=intr_coeff,
-                              **policy_args)
-        
-        with tf.name_scope('ICM'):
-            self.ICM = ICM(ICM_model, self.policy.state, input_shape, action_size, **ICM_args)
+            self.policy = PPO(policy_model, input_shape, action_size, value_coeff=value_coeff, intr_coeff=intr_coeff, extr_coeff=extr_coeff, lr=lr, **policy_args)
 
-        self.loss = policy_importance * self.policy.loss + reward_scale * ((1-forward_model_scale) * self.ICM.inverse_loss + forward_model_scale * self.ICM.forward_loss ) 
+        with tf.variable_scope('ICM'):
+            self.ICM = ICM(ICM_model, input_shape, action_size, **ICM_args)
+
+        with tf.variable_scope('RND'):
+            self.RND = RND(input_shape, RND_model, RND_args)
+
+        ICM_loss =  ((1-forward_model_scale) * self.ICM.inverse_loss + forward_model_scale * self.ICM.forward_loss) 
+        self.loss = self.policy.loss + ICM_loss + self.RND.feat_loss
         
-        #self.optimiser = tf.train.AdamOptimizer(lr)
-        self.optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
+        self.optimiser = tf.train.AdamOptimizer(lr)
         
         weights = self.policy.weights + self.ICM.weights
         grads = tf.gradients(self.loss, weights)
@@ -198,37 +203,41 @@ class Curiosity(object):
         grads_vars = list(zip(grads, weights))
 
         self.train_op = self.optimiser.apply_gradients(grads_vars)
-    
 
     def forward(self, state):
         return self.policy.forward(state)
-
-    def intrinsic_reward(self, state, action, next_state, state_mean, state_std):
-        feed_dict={self.policy.state:state, self.ICM.action:action, self.ICM.next_state:next_state,
-                   self.ICM.state_mean:state_mean, self.ICM.state_std:state_std}
-        intr_reward = self.sess.run(self.ICM.intr_reward, feed_dict=feed_dict)
-        return intr_reward
     
-    def backprop(self, state, next_state, R_extr, R_intr, Adv, actions, old_policy, state_mean, state_std):
-        feed_dict = {self.policy.state:state, self.policy.actions:actions,
-                    self.policy.R_extr:R_extr, self.policy.R_intr:R_intr, self.policy.Advantage:Adv,
-                    self.ICM.next_state:next_state,
-                    self.ICM.action:actions, self.policy.old_policy:old_policy,
-                    self.ICM.state_mean:state_mean, self.ICM.state_std:state_std}
-        _, l = self.sess.run([self.train_op, self.loss], feed_dict=feed_dict)
-        return l
+    def intrinsic_reward(self, states, actions, next_states, state_mean, state_std):
+        next_states__ = next_states[...,-1:] if len(next_states.shape) == 4 else next_states
         
+        feed_dict={self.ICM.state:states, self.ICM.action:actions, self.ICM.next_state:next_states,
+        self.ICM.state_mean:state_mean, self.ICM.state_std:state_std,
+        self.RND.next_state:next_states__, self.RND.state_mean:state_mean, self.RND.state_std:state_std}
+
+        ICM_intr_reward, RND_intr_reward = self.sess.run([self.ICM.intr_reward, self.RND.intr_reward], feed_dict=feed_dict)
+        return 0.5 * ICM_intr_reward + 0.5 * RND_intr_reward 
+    
+    def backprop(self, states, next_states, R_extr, R_intr, Adv, actions, old_policies, state_mean, state_std):
+        next_states__ = next_states[...,-1:] if len(next_states.shape) == 4 else next_states
+        
+        feed_dict = {self.policy.state:states, self.policy.actions:actions, self.policy.old_policy:old_policies,
+                    self.policy.R_extr:R_extr, self.policy.R_intr:R_intr, self.policy.Advantage:Adv,
+                    self.ICM.state:states, self.ICM.next_state:next_states, self.ICM.action:actions,
+                    self.ICM.state_mean:state_mean, self.ICM.state_std:state_std,
+                    self.RND.next_state:next_states__, self.RND.state_mean:state_mean, self.RND.state_std:state_std}
+        _, l = self.sess.run([self.train_op,self.loss], feed_dict=feed_dict)
+        return l
     
     def set_session(self, sess):
         self.sess = sess
         self.policy.set_session(sess)
 
 
-class RND_Trainer(SyncMultiEnvTrainer):
+class Curiosity_Trainer(SyncMultiEnvTrainer):
     def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', model_dir='models/', total_steps=1000000, nsteps=5, num_epochs=4, num_minibatches=4, validate_freq=1000000.0,
                  save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True):
         
-        super().__init__(envs, model, val_envs, train_mode=train_mode, log_dir=log_dir, model_dir=model_dir, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
+        super().__init__(envs, model, val_envs, train_mode=train_mode, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
                             save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars)
         self.runner = self.Runner(self.model, self.env, self.nsteps)
         self.alpha = 1
@@ -243,7 +252,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
 
         if log_scalars:
             hyper_paras = OrderedDict(hyper_paras)
-            filename = log_dir + '/hyperparameters.txt'
+            filename = log_dir + self.current_time + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
     
     def validate(self,env,num_ep,max_steps,render=False):
@@ -274,34 +283,27 @@ class RND_Trainer(SyncMultiEnvTrainer):
             with self.lock:
                 env.close()
     
-    # def init_state_obs(self, num_steps):
-    #     states = []
-    #     for i in range(num_steps):
-    #         rand_actions = np.random.randint(0, self.model.action_size, size=self.num_envs)
-    #         next_states, rewards, dones, infos = self.env.step(rand_actions)
-    #         states.append(next_states)
-    #         if i % self.nsteps == 0 and i > 0:
-    #             self.runner.state_mean, self.runner.state_std = self.state_rolling.update(np.stack(states))
-    #             states = []
-
     def init_state_obs(self, num_steps):
         states = 0
-        for i in range(1, num_steps+1):
+        for i in range(num_steps):
             rand_actions = np.random.randint(0, self.model.action_size, size=self.num_envs)
             next_states, rewards, dones, infos = self.env.step(rand_actions)
             states += next_states
         mean = states / num_steps
-        #var = (states - mean) / num_steps
-        self.runner.state_mean, self.runner.state_std = self.state_rolling.update(mean.mean(axis=0)[None,None])
+        var = (states - mean) / num_steps
+        self.runner.state_mean, self.runner.state_std = self.state_rolling.rolling.update_from_moments(mean.mean(axis=0)[...,-1:], var.mean(axis=0)[...,-1:], 1)
 
     
     def _train_nstep(self):
         batch_size = (self.num_envs * self.nsteps)
         num_updates = self.total_steps //  batch_size
+        alpha_step = 1/num_updates
         s = 0
         rolling = RunningMeanStd(shape=())
-        self.state_rolling = rolling_obs(shape=(), lastFrame=False)
-        self.init_state_obs(5*50)
+        obs = self.runner.states[0]
+        obs = obs[...,-1:] if len(obs.shape) == 3 else obs
+        self.state_rolling = rolling_obs(shape=obs.shape)
+        self.init_state_obs(128*50)
         self.runner.states = self.env.reset()
         forward_filter = RewardForwardFilter(self.gamma)
 
@@ -385,9 +387,10 @@ class RND_Trainer(SyncMultiEnvTrainer):
     
             
 
+
 def main(env_id, Atari=True):
     num_envs = 32
-    nsteps = 5
+    nsteps = 128
 
     env = gym.make(env_id)
     
@@ -415,59 +418,47 @@ def main(env_id, Atari=True):
     input_size = val_envs[0].reset().shape
     
     
-    current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
-    train_log_dir = 'logs/Curiosity_IntrValue/' + env_id + '/RMSprop/' + current_time
-    model_dir = "models/Curiosity_IntrValue/" + env_id + '/RMSprop/' + current_time
 
-    
-
-    ac_cnn_args = {'conv1_size':32, 'conv2_size':64, 'conv3_size':64, 'dense_size':512}
-
-    ICM_mlp_args = { 'input_size':input_size, 'dense_size':4}
-
-    ICM_cnn_args = {'input_size':[84,84,4], 'conv1_size':32, 'conv2_size':64, 'conv3_size':64, 'dense_size':512}
-    
-    
-   
-    ac_mlp_args = {'dense_size':64}
+    train_log_dir = 'logs/CombinedCuriosity/' + env_id + '/'
+    model_dir = "models/CombinedCuriosity/" + env_id + '/'
 
 
-    model = Curiosity(mlp,
-                      mlp,
+    model = Curiosity(policy_model = nature_cnn,
+                      ICM_model = nature_cnn,
+                      RND_model = predictor_cnn,
                       input_shape = input_size,
                       action_size = action_size,
                       forward_model_scale=0.2,
-                      policy_importance=1,
-                      reward_scale=1,
-                      value_coeff=0.5,
-                      entropy_coeff=0.001,
+                      policy_importance = 1.0,
                       extr_coeff=2.0,
                       intr_coeff=1.0,
-                      lr=1e-3,
+                      entropy_coeff=0.001,
+                      value_coeff=0.5,
+                      reward_scale=1.0,
+                      lr=1e-4,
+                      lr_final=1e-4,
                       decay_steps=50e6//(num_envs*nsteps),
                       grad_clip=0.5,
-                      policy_args={},)
-                      #ICM_args={'weight_initialiser':tf.initializers.orthogonal(np.sqrt(2)),})# 'scale':False }) 
+                      policy_args={},
+                      ICM_args={'scale':False, 'weight_initialiser':tf.initializers.orthogonal(np.sqrt(2))})#
+                      #}) 
 
     
 
-    curiosity = RND_Trainer(envs = envs,
-                            model = model,
-                            model_dir = model_dir,
-                            log_dir = train_log_dir,
-                            val_envs = val_envs,
-                            train_mode = 'nstep',
-                            total_steps = 2e6,
-                            nsteps = nsteps,
-                            num_epochs=4,
-                            num_minibatches=1,
-                            validate_freq = 4e4,
-                            save_freq = 0,
-                            render_freq = 0,
-                            num_val_episodes = 50,
-                            log_scalars=False)
-
-    
+    curiosity = Curiosity_Trainer(envs = envs,
+                                  model = model,
+                                  model_dir = model_dir,
+                                  log_dir = train_log_dir,
+                                  val_envs = val_envs,
+                                  train_mode = 'nstep',
+                                  total_steps = 10e6,
+                                  nsteps = nsteps,
+                                  validate_freq = 1e6,
+                                  save_freq = 0,
+                                  render_freq = 0,
+                                  num_val_episodes = 50,
+                                  log_scalars=False)
+    print(env_id)
     curiosity.train()
 
     del curiosity
@@ -476,10 +467,10 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = '1'
-    env_id_list = ['MontezumaRevengeDeterministic-v4']#  'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'PongDeterministic-v4', 'FreewayDeterministic-v4']
-    env_id_list = ['CartPole-v1', 'Acrobot-v1', 'MountainCar-v0', ]
-    for i in range(5):
-        for env_id in env_id_list:
-            main(env_id)
+    os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+    env_id_list = ['MontezumaRevengeDeterministic-v4',]# 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'PongDeterministic-v4', ]
+    #env_id_list = ['Acrobot-v1', 'CartPole-v1', 'MountainCar-v0', ]
+    #for i in range(5):
+    for env_id in env_id_list:
+        main(env_id)
     
