@@ -22,7 +22,8 @@ class SyncMultiEnvTrainer(object):
                 model - reinforcement learning model
                 log_dir, log directory string for location of directory to log scalars log_dir='logs/', model_dir='models/',
                 val_envs - a list of envs for validation 
-                train_mode - 'nstep' or 'onestep' species whether training is done using multiple step TD learning or single step 
+                train_mode - 'nstep' or 'onestep' species whether training is done using multiple step TD learning or single step
+                return_type - string to determine whether 'nstep', 'lambda' or 'GAE' returns are to be used
                 total_steps - number of Total training steps across all environements
                 nsteps - number of steps TD error is caluclated over
                 validate_freq - number of steps across all environements before performing validating, 0 for no validation 
@@ -30,6 +31,8 @@ class SyncMultiEnvTrainer(object):
                 render_freq - multiple of validate_freq before rendering (i.e. render every X validations), 0 for no rendering
                 update_target_freq - number of steps across all environements before updating target model, 0 for no updating
                 num_val_episodes - number of episodes to average over when validating
+                log_scalars - boolean flag whether to log tensorboard scalars to log_dir
+                gpu_growth - boolean flag whether to allow gpu growth when allocating initialising CUDNN of GPU
         '''
         self.env = envs
         if train_mode not in ['nstep', 'onestep']:
@@ -44,11 +47,11 @@ class SyncMultiEnvTrainer(object):
         self.validate_rewards = []
         self.model = model
 
-        config = tf.compat.v1.ConfigProto() # GPU 
+        config = tf.ConfigProto() # GPU 
         config.gpu_options.allow_growth = gpu_growth # GPU settings 
         #config.log_device_placement=True
         #config = tf.ConfigProto(device_count = {'GPU': 0}) #CPU ONLY
-        self.sess = tf.compat.v1.Session(config=config)
+        self.sess = tf.Session(config=config)
         self.model.set_session(self.sess)
     
         self.total_steps = int(total_steps)
@@ -75,15 +78,15 @@ class SyncMultiEnvTrainer(object):
             # Tensorboard Variables
             train_log_dir = self.log_dir  + '/train'
             
-            tf_epLoss = tf.compat.v1.placeholder('float',name='epsiode_loss')
-            tf_epReward =  tf.compat.v1.placeholder('float',name='episode_reward')
+            tf_epLoss = tf.placeholder('float',name='epsiode_loss')
+            tf_epReward =  tf.placeholder('float',name='episode_reward')
             self.tf_placeholders = (tf_epLoss,tf_epReward)
 
-            tf_sum_epLoss = tf.compat.v1.summary.scalar('epsiode_loss', tf_epLoss)
-            tf_sum_epReward = tf.compat.v1.summary.scalar('episode_reward', tf_epReward)
+            tf_sum_epLoss = tf.summary.scalar('epsiode_loss', tf_epLoss)
+            tf_sum_epReward = tf.summary.scalar('episode_reward', tf_epReward)
             self.tf_summary_scalars= (tf_sum_epLoss,tf_sum_epReward)
             
-            self.train_writer = tf.compat.v1.summary.FileWriter(train_log_dir)
+            self.train_writer = tf.summary.FileWriter(train_log_dir)
 
         
         self.saver = tf.train.Saver()

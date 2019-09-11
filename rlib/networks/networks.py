@@ -107,14 +107,14 @@ class LSTMCell(object):
         c = tf.math.tanh(tf.matmul(x, self._Wxc) + tf.matmul(prev_hidden, self._Whc) + self._bc)
         cell = tf.multiply(prev_cell, f) + tf.multiply(i, c)
         hidden = tf.multiply(o, tf.math.tanh(cell))
-        return hidden, tf.compat.v1.nn.rnn_cell.LSTMStateTuple(cell, hidden)
+        return hidden, tf.nn.rnn_cell.LSTMStateTuple(cell, hidden)
     
     def get_initial_state(self, batch_size):
-        return tf.compat.v1.nn.rnn_cell.LSTMStateTuple(tf.zeros((batch_size, self._cell_size), dtype=tf.float32), tf.zeros((batch_size, self._cell_size), dtype=tf.float32))
+        return tf.nn.rnn_cell.LSTMStateTuple(tf.zeros((batch_size, self._cell_size), dtype=tf.float32), tf.zeros((batch_size, self._cell_size), dtype=tf.float32))
     
     @property
     def state_size(self):
-        return tf.compat.v1.nn.rnn_cell.LSTMStateTuple(self._cell_size, self._cell_size)
+        return tf.nn.rnn_cell.LSTMStateTuple(self._cell_size, self._cell_size)
             #if self._state_is_tuple else 2 * self._cell_size)
 
     @property
@@ -132,10 +132,10 @@ def dynamic_masked_rnn(cell, X, hidden_init, mask, parallel_iterations=32, swap_
             hidden_init - tensor or placeholder of intial cell hidden state
             mask - tensor or placeholder of length time, for hidden state masking e.g. [True, False, False] will mask first hidden state
             parallel_iterations - number of parallel iterations to run RNN over
-            swap_memory - 
+            swap_memory - bool flag to swap memory between GPU and CPU
             time_major - bool flag to determine order of indices of input tensor 
             scope - tf variable_scope of dynamic RNN loop
-            trainable - bool flag whether to perform backpropagation to RNN cell
+            trainable - bool flag whether to perform backpropagation to RNN cell during while loop
     '''
     with tf.variable_scope(scope):
 
@@ -168,18 +168,16 @@ def dynamic_masked_rnn(cell, X, hidden_init, mask, parallel_iterations=32, swap_
 
 
 def one_to_many_rnn(cell, X, hidden_init, num_timesteps, parallel_iterations=32, swap_memory=False, time_major=True, scope='rnn', trainable=True):
-    ''' dynamic masked *hidden state* RNN for sequences that reset part way through an observation 
-        e.g. A2C 
+    ''' one to many RNN for sequences that only have one input observation but many outputs
         args :
             cell - cell of type tf.nn.rnn_cell
             X - tensor of rank [batch, hidden]
             hidden_init - tensor or placeholder of intial cell hidden state
-            mask - tensor or placeholder of length time, for hidden state masking e.g. [True, False, False] will mask first hidden state
             parallel_iterations - number of parallel iterations to run RNN over
-            swap_memory - 
+            swap_memory - bool flag to swap memory between GPU and CPU
             time_major - bool flag to determine order of indices of input tensor 
             scope - tf variable_scope of dynamic RNN loop
-            trainable - bool flag whether to perform backpropagation to RNN cell
+            trainable - bool flag whether to perform backpropagation to RNN cell during while loop
     '''
     with tf.variable_scope(scope):
         
@@ -253,10 +251,10 @@ def lstm(input, cell_size=256, fold_output=True, time_major=True):
     cell_in = tf.placeholder(tf.float32, [None, cell_size], name='cell_in')
     hidden_tuple = (cell_in, hidden_in)
     
-    lstm_cell = tf.compat.v1.nn.rnn_cell.LSTMCell(cell_size, state_is_tuple=True)
-    state_in = tf.compat.v1.nn.rnn_cell.LSTMStateTuple(cell_in, hidden_in)
+    lstm_cell = tf.nn.rnn_cell.LSTMCell(cell_size, state_is_tuple=True)
+    state_in = tf.nn.rnn_cell.LSTMStateTuple(cell_in, hidden_in)
 
-    lstm_output, hidden_out = tf.compat.v1.nn.dynamic_rnn(lstm_cell, input, initial_state=state_in, time_major=time_major)
+    lstm_output, hidden_out = tf.nn.dynamic_rnn(lstm_cell, input, initial_state=state_in, time_major=time_major)
     if fold_output:
         lstm_output = tf.reshape(lstm_output, shape=[-1, cell_size], name='folded_lstm_output')
     return lstm_output, hidden_tuple, hidden_out
@@ -270,7 +268,7 @@ def lstm_masked(input, cell_size, batch_size, fold_output=True, time_major=True,
     
     input_size = input.get_shape()[-1].value
     lstm_cell = LSTMCell(cell_size, input_size, trainable=trainable)
-    state_in = tf.compat.v1.nn.rnn_cell.LSTMStateTuple(cell_in, hidden_in)
+    state_in = tf.nn.rnn_cell.LSTMStateTuple(cell_in, hidden_in)
 
     lstm_output, hidden_out = dynamic_masked_rnn(lstm_cell, input, hidden_init=state_in, mask=mask, time_major=time_major,
                      parallel_iterations=parallel_iterations, swap_memory=swap_memory, trainable=trainable)
