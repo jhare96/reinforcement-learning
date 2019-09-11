@@ -11,8 +11,7 @@ from rlib.utils.VecEnv import*
 from rlib.utils.utils import stack_many, fold_batch, unfold_batch, one_hot, RunningMeanStd
 from collections import OrderedDict
 import matplotlib.pyplot as plt 
-#from .OneNetCuriosity import Curiosity_onenet
-#os.environ['TF_ENABLE_AUTO_MIXED_PRECISION'] = '1'
+
 
 class rolling_obs(object):
     def __init__(self, shape=(), lastFrame=False):
@@ -75,7 +74,7 @@ class ICM(object):
         with tf.variable_scope('Inverse_Model'):
             concat = tf.concat([self.phi1, self.phi2], 1, name='state-nextstate-concat')
             i1 = mlp_layer(concat, state_size, activation=tf.nn.relu, name='inverse_model')
-            pred_action = mlp_layer(i1, action_size, activation=None, name='pred_state')
+            pred_action = mlp_layer(i1, action_size, activation=None, name='pred_action')
             self.inverse_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=pred_action, labels=action_onehot)) # batch inverse loss
             print('pred_action', pred_action.get_shape().as_list(), 'inverse_loss', self.inverse_loss.get_shape().as_list())
         
@@ -189,8 +188,8 @@ class Curiosity(object):
 
         self.loss = policy_importance * self.policy.loss + reward_scale * ((1-forward_model_scale) * self.ICM.inverse_loss + forward_model_scale * self.ICM.forward_loss ) 
         
-        #self.optimiser = tf.train.AdamOptimizer(lr)
-        self.optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
+        self.optimiser = tf.train.AdamOptimizer(lr)
+        #self.optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
         
         weights = self.policy.weights + self.ICM.weights
         grads = tf.gradients(self.loss, weights)
@@ -301,7 +300,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
         s = 0
         rolling = RunningMeanStd(shape=())
         self.state_rolling = rolling_obs(shape=(), lastFrame=False)
-        self.init_state_obs(5*50)
+        self.init_state_obs(128*50)
         self.runner.states = self.env.reset()
         forward_filter = RewardForwardFilter(self.gamma)
 
@@ -309,6 +308,8 @@ class RND_Trainer(SyncMultiEnvTrainer):
         start = time.time()
         for t in range(1,num_updates+1):
             states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, old_policies, dones = self.runner.run()
+            self.runner.state_mean, self.runner.state_std = self.state_rolling.update(next_states) # update state normalisation statistics 
+
             policy, extr_last_values, intr_last_values = self.model.forward(next_states[-1])
             int_rff = np.array([forward_filter.update(intr_rewards[i]) for i in range(len(intr_rewards))])
             R_intr_mean, R_intr_std = rolling.update(int_rff.ravel())
@@ -321,7 +322,6 @@ class RND_Trainer(SyncMultiEnvTrainer):
             R_intr = Adv_intr + values_intr
             total_Adv = self.model.extr_coeff * Adv_extr + self.model.intr_coeff * Adv_intr
 
-            self.runner.state_mean, self.runner.state_std = self.state_rolling.update(next_states) # update state normalisation statistics 
 
             # perform minibatch gradient descent for K epochs 
             l = 0
@@ -387,7 +387,7 @@ class RND_Trainer(SyncMultiEnvTrainer):
 
 def main(env_id, Atari=True):
     num_envs = 32
-    nsteps = 5
+    nsteps = 128
 
     env = gym.make(env_id)
     
@@ -432,8 +432,8 @@ def main(env_id, Atari=True):
     ac_mlp_args = {'dense_size':64}
 
 
-    model = Curiosity(mlp,
-                      mlp,
+    model = Curiosity(nature_cnn,
+                      nature_cnn,
                       input_shape = input_size,
                       action_size = action_size,
                       forward_model_scale=0.2,
@@ -443,7 +443,7 @@ def main(env_id, Atari=True):
                       entropy_coeff=0.001,
                       extr_coeff=2.0,
                       intr_coeff=1.0,
-                      lr=1e-3,
+                      lr=1e-4,
                       decay_steps=50e6//(num_envs*nsteps),
                       grad_clip=0.5,
                       policy_args={},)
@@ -465,7 +465,7 @@ def main(env_id, Atari=True):
                             save_freq = 0,
                             render_freq = 0,
                             num_val_episodes = 50,
-                            log_scalars=False)
+                            log_scalars=True)
 
     
     curiosity.train()
@@ -476,10 +476,9 @@ def main(env_id, Atari=True):
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = '1'
     env_id_list = ['MontezumaRevengeDeterministic-v4']#  'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'PongDeterministic-v4', 'FreewayDeterministic-v4']
-    env_id_list = ['CartPole-v1', 'Acrobot-v1', 'MountainCar-v0', ]
-    for i in range(5):
+    #env_id_list = ['CartPole-v1', 'Acrobot-v1', 'MountainCar-v0', ]
+    for i in range(4):
         for env_id in env_id_list:
             main(env_id)
     

@@ -80,7 +80,7 @@ class PPO(object):
 
             entropy = tf.reduce_mean(tf.reduce_sum(self.policy_distrib * -tf.math.log(self.policy_distrib), axis=1))
 
-        # minimising -Adv and -H(pi(a|s)) is equivalent to maximising 
+        # minimising -Adv and -H(pi(a|s)) is equivalent to maximising +Adv, +H(pi(a|s))
         self.loss =  policy_loss + value_coeff * (extr_value_loss + intr_value_loss) - entropy_coeff * entropy
         self.weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name)
         
@@ -130,8 +130,9 @@ def predictor_mlp(x, num_layers=2, dense_size=64, activation=tf.nn.leaky_relu, i
     return x
 
 class RND(object):
-    def __init__(self, policy_model, target_model, input_shape, action_size, value_coeff=1.0, intr_coeff=0.5, extr_coeff=1.0, lr=1e-4, grad_clip = 0.5, policy_args ={}, RND_args={}):
+    def __init__(self, policy_model, target_model, input_shape, action_size, entropy_coeff=0.001, value_coeff=1.0, intr_coeff=0.5, extr_coeff=1.0, lr=1e-4, grad_clip = 0.5, policy_args ={}, RND_args={}):
         self.intr_coeff, self.extr_coeff =  intr_coeff, extr_coeff
+        self.entropy_coeff, self.value_coeff = entropy_coeff, value_coeff
         self.lr = lr
         self.grad_clip = grad_clip
         self.action_size = action_size
@@ -145,7 +146,8 @@ class RND(object):
         
 
         with tf.variable_scope('Policy', reuse=tf.AUTO_REUSE):
-            self.policy = PPO(policy_model, input_shape, action_size, value_coeff=value_coeff, intr_coeff=intr_coeff, extr_coeff=extr_coeff, lr=lr, **policy_args)
+            self.policy = PPO(policy_model, input_shape, action_size, entropy_coeff=entropy_coeff,
+                    value_coeff=value_coeff, intr_coeff=intr_coeff, extr_coeff=extr_coeff, lr=lr, **policy_args)
         
         if len(input_shape) == 3: # if obs is img, only use final frame
             next_state_shape = input_shape[:-1] + (1,)
@@ -361,14 +363,14 @@ class RND_Trainer(SyncMultiEnvTrainer):
 
 def main(env_id, Atari=True):
     num_envs = 32
-    nsteps = 5
+    nsteps = 128
 
     env = gym.make(env_id)
     
     classic_list = ['MountainCar-v0', 'Acrobot-v1', 'LunarLander-v2', 'CartPole-v0', 'CartPole-v1']
     if any(env_id in s for s in classic_list):
         print('Classic Control')
-        val_envs = [gym.make(env_id) for i in range(1)]
+        val_envs = [gym.make(env_id) for i in range(10)]
         envs = BatchEnv(DummyEnv, env_id, num_envs, blocking=False)
 
     else:
@@ -406,14 +408,15 @@ def main(env_id, Atari=True):
     ac_mlp_args = {'dense_size':64}
 
     #with tf.device('GPU:3'):
-    model = RND(mlp,
-                predictor_mlp,
+    model = RND(nature_cnn,
+                predictor_cnn,
                 input_shape = input_size,
                 action_size = action_size,
                 intr_coeff=1.0,
                 extr_coeff=2.0,
                 value_coeff=0.5,
-                lr=1e-3,
+                entropy_coeff=0.001,
+                lr=1e-4,
                 grad_clip=0.5,
                 policy_args={},
                 RND_args={}) #
@@ -426,16 +429,16 @@ def main(env_id, Atari=True):
                             log_dir = train_log_dir,
                             val_envs = val_envs,
                             train_mode = 'nstep',
-                            total_steps = 2e6,
+                            total_steps = 50e6,
                             nsteps = nsteps,
-                            init_obs_steps=5*50,
+                            init_obs_steps=128*50,
                             num_epochs=4,
-                            num_minibatches=1,
-                            validate_freq = 4e4,
-                            save_freq = 0,
-                            render_freq = 1,
-                            num_val_episodes = 1,
-                            log_scalars=False,
+                            num_minibatches=4,
+                            validate_freq = 1e6,
+                            save_freq = 5e6,
+                            render_freq = 0,
+                            num_val_episodes = 50,
+                            log_scalars=True,
                             gpu_growth=True)
     curiosity.train()
     
@@ -446,8 +449,8 @@ def main(env_id, Atari=True):
 
 if __name__ == "__main__":
     env_id_list = ['MontezumaRevengeDeterministic-v4', 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4']
-    env_id_list = ['MountainCar-v0', 'CartPole-v1' , 'Acrobot-v1', ]
-    for i in range(5):
+    #env_id_list = ['MountainCar-v0', 'CartPole-v1' , 'Acrobot-v1', ]
+    for i in range(2):
         for env_id in env_id_list:
             main(env_id)
     
