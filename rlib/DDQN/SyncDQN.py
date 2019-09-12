@@ -189,7 +189,7 @@ def stackFireReset(env):
     return StackEnv(FireResetEnv(env))
 
 
-def main(env_id,lr,ep_final):
+def main(env_id):
 
     num_envs = 8
     nsteps = 128
