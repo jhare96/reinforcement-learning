@@ -11,9 +11,13 @@ This repository has working implementations of the following reinforcement agent
           6. Random Network Distillation with Auxiliary Learning (RANDAL), novel solution combining UNREAL and RND agents  
           
           
+# Install repository:
+```bash
+git clone https://github.com/jhare96/reinforcement-learning.git
+pip install -e reinforcement-learning
+```
           
-          
-To cite this repository in publications:
+# To cite this repository in publications:
 
     @misc{Hare_rlib,
       author = {Joshua Hare},
