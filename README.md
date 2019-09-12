@@ -1,8 +1,9 @@
 # reinforcement-learning
 
 A small reinforcement learning library used for MSc dissertation project at the University of Sheffield.  
-This repository has working implementations of the following reinforcement agents :
-Markup : 1. Advantage Actor Critic (A2C)  
+
+This repository has working implementations of the following reinforcement agents:  
+          1. Advantage Actor Critic (A2C)  
           2. Synchronous n-step Double Deep Q Network (Sync-DDQN)  
           3. Proximal Policy Optimisation (PPO)  
           4. Random Network Distillation (RND)  
