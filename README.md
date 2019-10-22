@@ -1,6 +1,6 @@
 # reinforcement-learning
 
-A small reinforcement learning library used for MSc dissertation project at the University of Sheffield.  
+A small reinforcement learning library used for MSc dissertation project ['Dealing with sparse rewards in reinforcement learning'](https://arxiv.org/abs/1910.09281) at the University of Sheffield.  
 
 This repository has working implementations of the following reinforcement agents:  
           1. Advantage Actor Critic (A2C)  
@@ -16,6 +16,8 @@ This repository has working implementations of the following reinforcement agent
 git clone https://github.com/jhare96/reinforcement-learning.git
 pip install -e reinforcement-learning
 ```
+# To cite RANDAL agents in publications:  
+follow the link to the ArXiv publication https://arxiv.org/abs/1910.09281
           
 # To cite this repository in publications:
 
