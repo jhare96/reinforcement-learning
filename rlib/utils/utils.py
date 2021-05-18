@@ -1,10 +1,10 @@
-import tensorflow as tf
+import torch
 import numpy as np 
 
 def log_uniform(low=1e-10, high=1, size=()):
     return np.exp(np.random.uniform(low=np.log(low), high=np.log(high), size=size))
 
-def stack_many(args):
+def stack_many(*args):
     return tuple([np.stack(arg) for arg in args])
 
 def normalise(x, mean, std):
@@ -18,10 +18,12 @@ def fold_batch(x):
 def unfold_batch(x, length, batch_size):
     return x.reshape(length, batch_size, *x.shape[1:])
 
-
 def one_hot(x, num_classes):
     return np.eye(num_classes)[x]
 
+def totorch(x, GPU=True):
+    x = torch.from_numpy(x).float()
+    return x.cuda() if GPU else x
 
 class Welfords_algorithm(object):
     #https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm
@@ -73,3 +75,47 @@ class RunningMeanStd(object):
         self.count = new_count
         
         return self.mean, np.sqrt(self.var)
+    
+
+
+def nstep_return(rewards, last_values, dones, gamma=0.99, clip=False):
+    if clip:
+        rewards = np.clip(rewards, -1, 1)
+
+    T = len(rewards)
+    
+    # Calculate R for advantage A = R - V 
+    R = np.zeros_like(rewards)
+    R[-1] = last_values * (1-dones[-1])
+    
+    for i in reversed(range(T-1)):
+        # restart score if done as BatchEnv automatically resets after end of episode
+        R[i] = rewards[i] + gamma * R[i+1] * (1-dones[i])
+    
+    return R
+
+def lambda_return(rewards, values, last_values, dones, gamma=0.99, lambda_=0.8, clip=False):
+    if clip:
+        rewards = np.clip(rewards, -1, 1)
+    T = len(rewards)
+    # Calculate eligibility trace R^lambda 
+    R = np.zeros_like(rewards)
+    R[-1] =  last_values * (1-dones[-1])
+    for t in reversed(range(T-1)):
+        # restart score if done as BatchEnv automatically resets after end of episode
+        R[t] = rewards[t] + gamma * (lambda_* R[t+1] + (1.0-lambda_) * values[t+1]) * (1-dones[t])
+    
+    return R
+
+def GAE(rewards, values, last_values, dones, gamma=0.99, lambda_=0.95, clip=False):
+    if clip:
+        rewards = np.clip(rewards, -1, 1)
+    # Generalised Advantage Estimation
+    Adv = np.zeros_like(rewards)
+    Adv[-1] = rewards[-1] + gamma * last_values * (1-dones[-1]) - values[-1]
+    T = len(rewards)
+    for t in reversed(range(T-1)):
+        delta = rewards[t] + gamma * values[t+1] * (1-dones[t]) - values[t]
+        Adv[t] = delta + gamma * lambda_ * Adv[t+1] * (1-dones[t])
+    
+    return Adv

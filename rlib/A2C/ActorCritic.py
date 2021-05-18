@@ -1,144 +1,127 @@
-import tensorflow as tf
+import torch
+import torch.nn.functional as F
 import numpy as np
-from rlib.networks.networks import mlp_layer, lstm, lstm_masked
+from rlib.networks.networks import MaskedLSTMCell, MaskedRNN
+from rlib.utils.schedulers import polynomial_sheduler
+from rlib.utils.utils import totorch
 
-class ActorCritic(object):
-    def __init__(self, model, input_shape, action_size, entropy_coeff=0.01, value_coeff=0.5, lr=1e-3, lr_final=1e-6, decay_steps=6e5, grad_clip = 0.5, build_optimiser=True, **model_args):
-        self.lr, self.lr_final = lr, lr_final
-        self.entropy_coeff, self.value_coeff = entropy_coeff, value_coeff
+class ActorCritic(torch.nn.Module):
+    def __init__(self, model, input_size, action_size, entropy_coeff=0.01, value_coeff=0.5, lr=1e-3, lr_final=1e-6, decay_steps=6e5, grad_clip=0.5, build_optimiser=True, optim=torch.optim.Adam, optim_args={}, **model_args):
+        super(ActorCritic, self).__init__()
+        self.lr = lr
+        self.lr_final = lr_final
+        self.entropy_coeff = entropy_coeff
+        self.value_coeff = value_coeff
         self.decay_steps = decay_steps
         self.grad_clip = grad_clip
-        self.sess = None
+        self.action_size = action_size
 
-        with tf.variable_scope('encoder_network'):
-            self.state = tf.placeholder(tf.float32, shape=[None, *input_shape])
-            print('state shape', self.state.get_shape().as_list())
-            self.dense = model(self.state, **model_args)
-        
-        with tf.variable_scope('critic'):
-            self.V = tf.reshape(mlp_layer(self.dense, 1, name='state_value', activation=None), shape=[-1])
-        
-        with tf.variable_scope("actor"):
-            self.policy_distrib = mlp_layer(self.dense, action_size, activation=tf.nn.softmax, name='policy_distribution')
-            self.actions = tf.placeholder(tf.int32, [None])
-            actions_onehot = tf.one_hot(self.actions,action_size)
-            
-        with tf.variable_scope('losses'):
-            self.R = tf.placeholder(dtype=tf.float32, shape=[None])
-            Advantage = self.R - self.V
-            value_loss = 0.5 * tf.reduce_mean(tf.square(Advantage))
-
-            log_policy = tf.math.log(tf.clip_by_value(self.policy_distrib, 1e-6, 0.999999))
-            log_policy_actions = tf.reduce_sum(tf.multiply(log_policy, actions_onehot), axis=1)
-            policy_loss =  tf.reduce_mean(-log_policy_actions * tf.stop_gradient(Advantage))
-
-            entropy = tf.reduce_mean(tf.reduce_sum(self.policy_distrib * -log_policy, axis=1))
-    
-        self.weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name)
-        self.loss =  policy_loss + value_coeff * value_loss - entropy_coeff * entropy
+        self.model = model(input_size, **model_args)
+        dense_size = self.model.dense_size 
+        self.policy_distrib = torch.nn.Linear(dense_size, action_size) # Actor
+        self.V = torch.nn.Linear(dense_size, 1) # Critic 
         
         if build_optimiser:
-            global_step = tf.Variable(0, trainable=False)
-            lr = tf.train.polynomial_decay(lr, global_step, decay_steps, end_learning_rate=lr_final, power=1.0, cycle=False, name=None)
-            #optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
-            optimiser = tf.train.AdamOptimizer(lr)
-            grads = tf.gradients(self.loss, self.weights)
-            grads, _ = tf.clip_by_global_norm(grads, grad_clip)
-            grads_vars = list(zip(grads, self.weights))
-            self.train_op = optimiser.apply_gradients(grads_vars, global_step=global_step)
+            self.optimiser = optim(self.parameters(), lr, **optim_args)
+            self.scheduler = polynomial_sheduler(self.optimiser, lr_final, decay_steps, power=1)
+        
+    def loss(self, policy, R, V, actions_onehot):
+        Advantage = R - V
+        value_loss = 0.5 * torch.mean(torch.square(Advantage))
+
+        log_policy = torch.log(torch.clip(policy, 1e-6, 0.999999))
+        log_policy_actions = torch.sum(log_policy * actions_onehot, dim=1)
+        policy_loss =  torch.mean(-log_policy_actions * Advantage.detach())
+
+        entropy = torch.mean(torch.sum(policy * -log_policy, dim=1))
+        loss =  policy_loss + self.value_coeff * value_loss - self.entropy_coeff * entropy
+        return loss
 
     def forward(self, state):
-        return self.sess.run([self.policy_distrib, self.V], feed_dict = {self.state:state})
-
-    def get_policy(self, state):
-        return self.sess.run(self.policy_distrib, feed_dict = {self.state: state})
+        enc_state = self.model(state)
+        policy = F.softmax(self.policy_distrib(enc_state), dim=-1)
+        value = self.V(enc_state).view(-1)
+        return policy, value
     
-    def get_value(self, state):
-        return self.sess.run(self.V, feed_dict = {self.state: state})
+    def backprop(self, state, R, action):
+        state, R, action = totorch(state), totorch(R), totorch(action)
+        action_onehot = F.one_hot(action.long(), num_classes=self.action_size)
+        policy, value = self.forward(state)
+        loss = self.loss(policy, R, value, action_onehot)
+        loss.backward()
+        if self.grad_clip is not None:
+            torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_clip)
+        self.optimiser.step()
+        self.optimiser.zero_grad()
+        self.scheduler.step()
+        return loss.detach().cpu().numpy()
 
-    def backprop(self, state, R, a):
-        *_,l = self.sess.run([self.train_op, self.loss], feed_dict = {self.state : state, self.R : R, self.actions: a})
-        return l
-    
-    def set_session(self, sess):
-        self.sess = sess
 
 
-
-class ActorCritic_LSTM(object):
-    def __init__(self, model, input_shape, action_size, num_envs, cell_size,
-                 lr=1e-3, lr_final=1e-6, decay_steps=6e5, grad_clip = 0.5, build_optimiser=False, model_args={}):
-        self.lr, self.lr_final = lr, lr_final
+class ActorCritic_LSTM(torch.nn.Module):
+    def __init__(self, model, input_size, action_size, cell_size, entropy_coeff=0.01, value_coeff=0.5, lr=1e-3, lr_final=1e-6, decay_steps=6e5, grad_clip=0.5, build_optimiser=True, optim=torch.optim.Adam, optim_args={}, **model_args):
+        super(ActorCritic_LSTM, self).__init__()
+        self.lr = lr
+        self.lr_final = lr_final
+        self.input_size = input_size
+        self.entropy_coeff = entropy_coeff
+        self.value_coeff = value_coeff
         self.decay_steps = decay_steps
         self.grad_clip = grad_clip
         self.cell_size = cell_size
-        self.num_envs = num_envs
-        self.sess = None
+        self.action_size = action_size
 
-        with tf.variable_scope('input'):
-            self.state = tf.placeholder(tf.float32, shape=[None, *input_shape], name='time_batch_state') # [time*batch, *input_shape]
 
-        with tf.variable_scope('encoder_network'):
-            self.dense = model(self.state, **model_args)
-            dense_size = self.dense.get_shape()[1].value
-            unfolded_state = tf.reshape(self.dense, shape=[-1, num_envs, dense_size], name='unfolded_state')
-        
-        with tf.variable_scope('lstm'):
-            #self.lstm_output, self.hidden_in, self.hidden_out = lstm(unfolded_state, cell_size=cell_size, fold_output=True, time_major=True)
-            self.lstm_output, self.hidden_in, self.hidden_out, self.mask = lstm_masked(unfolded_state, cell_size=cell_size, batch_size=num_envs, fold_output=True, time_major=True)
+        self.model = model(input_size, **model_args)
+        self.dense_size = self.model.dense_size
+        self.lstm = MaskedRNN(MaskedLSTMCell(cell_size, self.dense_size), time_major=True)
 
-        with tf.variable_scope('critic'):
-            self.V = tf.reshape( mlp_layer(self.lstm_output, 1, name='state_value', activation=None), shape=[-1])
+        self.policy_distrib = torch.nn.Linear(cell_size, action_size) # Actor
+        self.V = torch.nn.Linear(cell_size, 1) # Critic 
 
-        
-        with tf.variable_scope("actor"):
-            self.policy_distrib = mlp_layer(self.lstm_output, action_size, activation=tf.nn.softmax, name='policy_distribution')
-            self.actions = tf.placeholder(tf.int32, [None])
-            actions_onehot = tf.one_hot(self.actions,action_size)
-            
-        with tf.variable_scope('losses'):
-            self.R = tf.placeholder(dtype=tf.float32, shape=[None])
-            Advantage = self.R - self.V
-            value_loss = 0.5 * tf.reduce_mean(tf.square(Advantage))
-
-            log_policy = tf.math.log(tf.clip_by_value(self.policy_distrib, 1e-6, 0.999999))
-            log_policy_actions = tf.reduce_sum(tf.multiply(log_policy, actions_onehot), axis=1)
-            policy_loss =  tf.reduce_mean(-log_policy_actions * tf.stop_gradient(Advantage))
-
-            entropy = tf.reduce_mean(tf.reduce_sum(self.policy_distrib * -log_policy, axis=1))
-    
-        self.weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name)
-
-        self.loss =  policy_loss + 0.5 * value_loss - 0.01 * entropy
 
         if build_optimiser:
-            global_step = tf.Variable(0, trainable=False)
-            tf.train.polynomial_decay(lr, global_step, decay_steps, end_learning_rate=lr_final, power=1.0, cycle=False, name=None)
+            self.optimiser = optim(self.parameters(), lr, **optim_args)
+            self.scheduler = polynomial_sheduler(self.optimiser, lr_final, decay_steps, power=1)
+        
+    def loss(self, policy, R, V, actions_onehot):
+        Advantage = R - V
+        value_loss = 0.5 * torch.mean(torch.square(Advantage))
 
-            optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
+        log_policy = torch.log(torch.clip(policy, 1e-6, 0.999999))
+        log_policy_actions = torch.sum(log_policy * actions_onehot, dim=1)
+        policy_loss =  torch.mean(-log_policy_actions * Advantage.detach())
 
-            
-            grads = tf.gradients(self.loss, self.weights)
-            grads, _ = tf.clip_by_global_norm(grads, grad_clip)
-            grads_vars = list(zip(grads, self.weights))
-            self.train_op = optimiser.apply_gradients(grads_vars, global_step=global_step)
+        entropy = torch.mean(torch.sum(policy * -log_policy, dim=1))
+        loss =  policy_loss + self.value_coeff * value_loss - self.entropy_coeff * entropy
+        return loss
+
+    def forward(self, state, hidden=None, done=None):
+        T, num_envs = state.shape[:2]
+        folded_state = state.view(-1, *self.input_size)
+        enc_state = self.model(folded_state)
+        folded_enc_state = enc_state.view(T, num_envs, self.dense_size)
+        lstm_outputs, hidden = self.lstm(folded_enc_state, hidden, done)
+        policy = F.softmax(self.policy_distrib(lstm_outputs), dim=-1).view(-1, self.action_size)
+        value = self.V(lstm_outputs).view(-1)
+        return policy, value, hidden
+    
+    def backprop(self, state, R, action, hidden, done):
+        state, R, action, done = totorch(state), totorch(R), totorch(action), totorch(done)
+        action_onehot = F.one_hot(action.long(), num_classes=self.action_size)
+        policy, value, hidden = self.forward(state, hidden, done)
+        loss = self.loss(policy, R, value, action_onehot)
+        loss.backward()
+        if self.grad_clip is not None:
+            torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_clip)
+        self.optimiser.step()
+        self.optimiser.zero_grad()
+        self.scheduler.step()
+        return loss.detach().cpu().numpy()
     
     def get_initial_hidden(self, batch_size):
-        return np.zeros((batch_size, self.cell_size)), np.zeros((batch_size, self.cell_size))
+        return torch.zeros((batch_size, self.cell_size)), torch.zeros((batch_size, self.cell_size))
     
-    def reset_batch_hidden(self, hidden, idxs):
-        return hidden * np.stack([idxs for i in range(self.cell_size)], axis=1)
-
-    def forward(self, state, hidden):
-        mask = np.zeros((1, self.num_envs)) # state = [time*batch, ...]
-        feed_dict = {self.state:state, self.hidden_in[0]:hidden[0], self.hidden_in[1]:hidden[1], self.mask:mask}
-        policy, value, hidden = self.sess.run([self.policy_distrib, self.V, self.hidden_out], feed_dict = feed_dict)
-        return policy, value, hidden
-
-    def backprop(self, state, R, a, hidden, dones):
-        feed_dict = {self.state : state, self.R : R, self.actions: a, self.hidden_in[0]:hidden[0], self.hidden_in[1]:hidden[1], self.mask:dones}
-        *_,l = self.sess.run([self.train_op, self.loss], feed_dict=feed_dict)
-        return l
-    
-    def set_session(self, sess):
-        self.sess = sess
+    def mask_hidden(self, hidden, dones):
+        mask = totorch(1-dones).view(-1, 1)
+        return (hidden[0]*mask, hidden[1]*mask)
