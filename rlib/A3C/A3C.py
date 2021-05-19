@@ -16,6 +16,7 @@ def train(global_model, model, env, nsteps, num_episodes, ID):
     opt = torch.optim.RMSprop(global_model.parameters(), lr=1e-3)
     episode = 0
     episode_steps = 0
+    episode_score = 0
     T = 0
     state = env.reset()
     start = time.time()
@@ -27,6 +28,7 @@ def train(global_model, model, env, nsteps, num_episodes, ID):
                 policy, value = tonumpy(policy), tonumpy(value)
             action = np.random.choice(policy.shape[1], p=policy[0])
             next_state, reward, done, info = env.step(action)
+            episode_score += reward
             rollout.append((state, action, reward, value, done))
             state = next_state
 
@@ -51,8 +53,9 @@ def train(global_model, model, env, nsteps, num_episodes, ID):
                     state = env.reset()
                     if episode % 1 == 0:
                         time_taken = time.time() - start 
-                        print(f'worker {ID}, total worker steps {T:,} local episode {episode}, episode score {rewards.sum()} episode steps {episode_steps}, time taken {time_taken:,.1f}s, fps {episode_steps/time_taken:.2f}')
+                        print(f'worker {ID}, total worker steps {T:,} local episode {episode}, episode score {episode_score} episode steps {episode_steps}, time taken {time_taken:,.1f}s, fps {episode_steps/time_taken:.2f}')
                     episode_steps = 0
+                    episode_score = 0
                     start = time.time()
                     break
     
