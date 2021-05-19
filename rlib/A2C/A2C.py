@@ -7,7 +7,7 @@ from rlib.networks.networks import*
 from rlib.utils.VecEnv import*
 from rlib.utils.wrappers import*
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
-from rlib.utils.utils import stack_many, totorch
+from rlib.utils.utils import stack_many, totorch, fastsample
 from rlib.A2C.ActorCritic import ActorCritic
 
 class A2C(SyncMultiEnvTrainer):
@@ -34,24 +34,19 @@ class A2C(SyncMultiEnvTrainer):
         def run(self,):
             rollout = []
             for t in range(self.num_steps):
-                with torch.no_grad():
-                    policies, values = self.model.forward(totorch(self.states))
-                actions = torch.multinomial(policies, num_samples=1).view(-1).cpu().numpy()
+                policies, values = self.model.evaluate(self.states)
+                actions = fastsample(policies)
                 next_states, rewards, dones, infos = self.env.step(actions)
-                rollout.append((self.states, actions, rewards, values.cpu().numpy(), dones, np.array(infos)))
+                rollout.append((self.states, actions, rewards, values, dones))
                 self.states = next_states
             
-            states, actions, rewards, values, dones, infos = stack_many(*zip(*rollout))
-            with torch.no_grad():
-                _, last_values = self.model.forward(totorch(next_states))
-                last_values = last_values.cpu().numpy()
-            return states, actions, rewards, dones, infos, values, last_values
+            states, actions, rewards, values, dones = stack_many(*zip(*rollout))
+            _, last_values = self.model.evaluate(next_states)
+            return states, actions, rewards, dones, values, last_values
     
     def get_action(self, state):
-        with torch.no_grad():
-            policy, value = self.model.forward(totorch(state))
-            policy = policy.cpu().numpy()
-        action = int(np.random.choice(policy.shape[1], p=policy[0]))
+        policy, value = self.model.evaluate(state)
+        action = int(fastsample(policy))
         return action
     
     
@@ -61,11 +56,9 @@ class A2C(SyncMultiEnvTrainer):
         y = np.zeros((self.num_envs))
         num_steps = self.total_steps // self.num_envs
         for t in range(1,num_steps+1):
-            with torch.no_grad():
-                policies, values = self.model.forward(states)
-            actions = torch.multinomial(policies, num_samples=1).view(-1).cpu().numpy()
+            policies, values = self.model.evaluate(self.states)
+            actions = fastsample(policies)
             next_states, rewards, dones, infos = self.env.step(actions)
-            rewards = np.clip(rewards, -1, 1)
             y = rewards + self.gamma * self.model.get_value(next_states) * (1-dones)
             
             l = self.model.backprop(states, y, actions)

@@ -5,7 +5,7 @@ import os, time, datetime
 import threading
 from rlib.A2C.ActorCritic import ActorCritic_LSTM
 from rlib.networks.networks import*
-from rlib.utils.utils import fold_batch, stack_many, totorch
+from rlib.utils.utils import fold_batch, stack_many, totorch, fastsample
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.VecEnv import*
 from rlib.utils.wrappers import*
@@ -72,10 +72,9 @@ class A2CLSTM_Trainer(SyncMultiEnvTrainer):
             c, h = self.model.get_initial_hidden(1)
             hidden = (c.cuda(), h.cuda())
             for t in range(max_steps):
-                with torch.no_grad():
-                    policy, value, hidden = self.model.forward(totorch(state[None, None]), hidden)
+                policy, value, hidden = self.model.evaluate(state[None, None], hidden)
                 #print('policy', policy, 'value', value)
-                action = torch.multinomial(policy, num_samples=1).view(-1).cpu().numpy()
+                action = int(fastsample(policy))
                 next_state, reward, done, info = env.step(action)
                 state = next_state
 
@@ -105,19 +104,16 @@ class A2CLSTM_Trainer(SyncMultiEnvTrainer):
             rollout = []
             first_hidden = (self.prev_hidden[0].detach().clone(), self.prev_hidden[1].detach().clone())
             for t in range(self.num_steps):
-                with torch.no_grad():
-                    policies, values, hidden = self.model.forward(totorch(self.states[None]), self.prev_hidden)
-                actions = torch.multinomial(policies, num_samples=1).view(-1).cpu().numpy()
+                policies, values, hidden = self.model.evaluate(self.states[None], self.prev_hidden)
+                actions = fastsample(policies)
                 next_states, rewards, dones, infos = self.env.step(actions)
-                rollout.append((self.states, actions, rewards, values.cpu().numpy(), dones))
+                rollout.append((self.states, actions, rewards, values, dones))
                 self.states = next_states
-                
                 self.prev_hidden = self.model.mask_hidden(hidden, dones) # reset hidden state at end of episode
                 
             states, actions, rewards, values, dones = stack_many(*zip(*rollout))
-            with torch.no_grad():
-                _, last_values, _ = self.model.forward(totorch(self.states[None]), self.prev_hidden)
-            return states, actions, rewards, first_hidden, dones, values, last_values.cpu().numpy()
+            _, last_values, _ = self.model.evaluate(self.states[None], self.prev_hidden)
+            return states, actions, rewards, first_hidden, dones, values, last_values
             
 
 def main(env_id):

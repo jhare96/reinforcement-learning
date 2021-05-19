@@ -3,6 +3,9 @@ import numpy as np
 from PIL import Image
 from collections import deque
 
+import torch
+from torch._C import device
+
 # Code was inspired from or modified from OpenAI baselines https://github.com/openai/baselines/tree/master/baselines/common
 
 
@@ -226,32 +229,7 @@ class StackEnv(gym.Wrapper):
     #         self._stacked_frames[:,:,-1] = frame
     #     return self._stacked_frames
 
-class DummyBatchEnv(object):
-    def __init__(self, env_constructor, env_id, num_envs, make_args={}, **env_args):
-        self.envs = self.envs = [env_constructor(gym.make(env_id, **make_args),**env_args) for i in range(num_envs)]
 
-    def __len__(self):
-        return len(self.envs)
-    
-    # def __getattr__(self, name):
-    #     return [getattr(self.envs[i], name) for i in range(len(self.envs))]
-
-    def __getattr__(self, name):
-        return getattr(self.envs[0], name)
-
-    def step(self,actions):
-        results = [env.step(action) for env, action in zip(self.envs,actions)]
-        obs, rewards, done, info = zip(*results)
-        np.stack(obs), np.stack(rewards), np.stack(done), info
-        return np.stack(obs), np.stack(rewards), np.stack(done), info
-    
-    def reset(self):
-        obs = [env.reset() for env in self.envs]
-        return np.stack(obs)
-    
-    def close(self):
-        for env in self.envs:
-            env.close()
 
 class AutoResetEnv(gym.Wrapper):
     def __init__(self, env, k=4):
@@ -274,6 +252,23 @@ class ChannelsFirstEnv(gym.Wrapper):
     def reset(self, **kwargs):
         obs = self.env.reset(**kwargs)
         return obs.transpose(2, 0, 1)
+
+
+class ToTorchEnv(gym.Wrapper):
+    def __init__(self, env, device='cuda:0'):
+        gym.Wrapper.__init__(self, env)
+        self.device = device
+
+    def step(self, action:torch.Tensor):
+        obs, reward, done, info = self.env.step(action.cpu().numpy())
+        obs = torch.from_numpy(obs).float().to(self.device)
+        reward = torch.tensor(reward, device=self.device, dtype=torch.float32)
+        done = torch.tensor(done, device=self.device)
+        return obs, reward, done, info
+
+    def reset(self, **kwargs):
+        obs = self.env.reset(**kwargs)
+        return torch.from_numpy(obs).float().to(self.device)
 
 def apple_pickgame(env, auto_reset=False, max_steps=1000, torch=False):
     if auto_reset:
@@ -317,6 +312,6 @@ def AtariEnv(env, k=4, rescale=84, episodic=True, reset=True, clip_reward=True, 
         env = TimeLimitEnv(env, time_limit)
 
     if channels_first:
-        return ChannelsFirstEnv(env)
+        env = ChannelsFirstEnv(env)
     
     return env

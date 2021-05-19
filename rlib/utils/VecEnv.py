@@ -7,6 +7,7 @@ from PIL import Image
 from itertools import chain
 import matplotlib.pyplot as plt
 from collections import deque
+import torch
 
 from rlib.envs.apple_picker import ApplePicker
 
@@ -128,7 +129,6 @@ class BatchEnv(object):
             results = [result() for result in results] # collect results
             
         obs, rewards, done, info = zip(*results)
-        np.stack(obs), np.stack(rewards), np.stack(done), info
         return np.stack(obs), np.stack(rewards), np.stack(done), info
     
     def reset(self):
@@ -238,3 +238,28 @@ class ChunkWorker(mp.Process):
                 break
 
 
+class DummyBatchEnv(object):
+    def __init__(self, env_constructor, env_id, num_envs, make_args={}, **env_args):
+        self.envs = self.envs = [env_constructor(gym.make(env_id, **make_args),**env_args) for i in range(num_envs)]
+
+    def __len__(self):
+        return len(self.envs)
+    
+    # def __getattr__(self, name):
+    #     return [getattr(self.envs[i], name) for i in range(len(self.envs))]
+
+    def __getattr__(self, name):
+        return getattr(self.envs[0], name)
+
+    def step(self,actions):
+        results = [env.step(action) for env, action in zip(self.envs,actions)]
+        obs, rewards, done, info = zip(*results)
+        return np.stack(obs), np.stack(rewards), np.stack(done), info
+    
+    def reset(self):
+        obs = [env.reset() for env in self.envs]
+        return np.stack(obs)
+    
+    def close(self):
+        for env in self.envs:
+            env.close()

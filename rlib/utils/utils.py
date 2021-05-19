@@ -1,11 +1,14 @@
 import torch
 import numpy as np 
 
+def fastsample(policy:np.ndarray, k=1):
+    return torch.multinomial(torch.from_numpy(policy), num_samples=k, replacement=True).numpy()
+
 def log_uniform(low=1e-10, high=1, size=()):
     return np.exp(np.random.uniform(low=np.log(low), high=np.log(high), size=size))
 
-def stack_many(*args):
-    return tuple([np.stack(arg) for arg in args])
+def stack_many(*args, stack=np.stack):
+    return tuple([stack(arg) for arg in args])
 
 def normalise(x, mean, std):
     return (x-mean)/std
@@ -21,9 +24,12 @@ def unfold_batch(x, length, batch_size):
 def one_hot(x, num_classes):
     return np.eye(num_classes)[x]
 
-def totorch(x, GPU=True):
-    x = torch.from_numpy(x).float()
-    return x.cuda() if GPU else x
+def totorch(x, device='cuda'):
+    x = torch.from_numpy(x).float().to(device)
+    return x
+
+def tonumpy(x):
+    return x.detach().cpu().numpy()
 
 class Welfords_algorithm(object):
     #https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm

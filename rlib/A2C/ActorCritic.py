@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 from rlib.networks.networks import MaskedLSTMCell, MaskedRNN
 from rlib.utils.schedulers import polynomial_sheduler
-from rlib.utils.utils import totorch
+from rlib.utils.utils import totorch, tonumpy
 
 class ActorCritic(torch.nn.Module):
     def __init__(self, model, input_size, action_size, entropy_coeff=0.01, value_coeff=0.5, lr=1e-3, lr_final=1e-6, decay_steps=6e5, grad_clip=0.5, build_optimiser=True, optim=torch.optim.Adam, optim_args={}, **model_args):
@@ -42,6 +42,12 @@ class ActorCritic(torch.nn.Module):
         policy = F.softmax(self.policy_distrib(enc_state), dim=-1)
         value = self.V(enc_state).view(-1)
         return policy, value
+    
+    def evaluate(self, state:np.ndarray):
+        state = totorch(state)
+        with torch.no_grad():
+            policy, value = self.forward(state)
+        return tonumpy(policy), tonumpy(value)
     
     def backprop(self, state, R, action):
         state, R, action = totorch(state), totorch(R), totorch(action)
@@ -105,6 +111,11 @@ class ActorCritic_LSTM(torch.nn.Module):
         policy = F.softmax(self.policy_distrib(lstm_outputs), dim=-1).view(-1, self.action_size)
         value = self.V(lstm_outputs).view(-1)
         return policy, value, hidden
+    
+    def evaluate(self, state, hidden=None, done=None):
+        with torch.no_grad():
+            policy, value, hidden = self.forward(state, hidden, done)
+        return tonumpy(policy), tonumpy(value), hidden
     
     def backprop(self, state, R, action, hidden, done):
         state, R, action, done = totorch(state), totorch(R), totorch(action), totorch(done)
