@@ -1,8 +1,8 @@
 import torch
-import numpy as np 
+import numpy as np
 
 def fastsample(policy:np.ndarray, k=1):
-    return torch.multinomial(torch.from_numpy(policy), num_samples=k, replacement=True).numpy()
+    return torch.multinomial(torch.from_numpy(policy), num_samples=k, replacement=True).view(-1).numpy()
 
 def log_uniform(low=1e-10, high=1, size=()):
     return np.exp(np.random.uniform(low=np.log(low), high=np.log(high), size=size))
@@ -30,6 +30,12 @@ def totorch(x, device='cuda'):
 
 def tonumpy(x):
     return x.detach().cpu().numpy()
+
+def tonumpy_many(*args):
+    return tuple([tonumpy(arg) for arg in args])
+
+def totorch_many(*args, device='cuda'):
+    return tuple([totorch(arg, device) for arg in args])
 
 class Welfords_algorithm(object):
     #https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm

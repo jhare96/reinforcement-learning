@@ -1,15 +1,10 @@
 import numpy as np
 import gym
 import multiprocessing as mp
-import threading
-import time
 from PIL import Image
 from itertools import chain
 import matplotlib.pyplot as plt
 from collections import deque
-import torch
-
-from rlib.envs.apple_picker import ApplePicker
 
 # Code was inspired from or modified from OpenAI baselines https://github.com/openai/baselines/tree/master/baselines/common
 

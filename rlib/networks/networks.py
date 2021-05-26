@@ -288,27 +288,28 @@ from typing import List
 #         lstm_output = tf.reshape(lstm_output, shape=[-1, cell_size], name='folded_lstm_output')
 #     return lstm_output, hidden_tuple, hidden_out, mask
 
+def deconv2d_outsize(height, width, kernel_size, stride, padding, dilation=[1,1], output_padding=[0,0]):
+    h_out = (height-1) * stride[0] - 2*padding[0] + dilation[0] * (kernel_size[0]-1) + output_padding[0] + 1
+    w_out = (width-1) * stride[1] - 2*padding[1] + dilation[1] * (kernel_size[1]-1) + output_padding[1] + 1
+    return h_out, w_out
 
 def conv2d_outsize(height, width, kernel_size, stride, padding):
     h_out = ((height + 2*padding[0] - (kernel_size[0] -1) -1) // stride[0]) + 1
     w_out = ((width + 2*padding[1] - (kernel_size[1] -1) -1) // stride[1]) + 1
     return h_out, w_out
 
-class Universe2CNN(torch.nn.Module):
-    def __init__(self, input_shape, conv1_size=64, conv2_size=64, conv3_size=64, dense_size=512, padding=[0,0], conv_activation=torch.nn.ELU, dense_activation=torch.nn.ReLU, weight_initialiser=torch.nn.init.xavier_uniform_, scale=True, trainable=True):
-        # input_shape [channels, height, width]
-        super(Universe2CNN, self).__init__()
-        self.scale = scale
-        self.input_shape = input_shape
-        self.dense_size = dense_size
+class DeconvUniverse(torch.nn.Module):
+    def __init__(self, output_size, deconv1_size=64, deconv2_size=64, deconv3_size=64, deconv4_size=64, padding=[0,0], conv_activation=torch.nn.ELU, weight_initialiser=torch.nn.init.xavier_uniform_, trainable=True):
+        # output_size [channels, height, width] size of output after convolutions
+        super(DeconvUniverse, self).__init__()
+        self.output_size = output_size
+        self.dense_size = np.prod(output_size)
         
-        self.h1 = torch.nn.Sequential(torch.nn.Conv2d(input_shape[0], conv1_size, kernel_size=[3,3], stride=[2,2], padding=padding), conv_activation())
-        self.h2 = torch.nn.Sequential(torch.nn.Conv2d(conv1_size, conv2_size, kernel_size=[3,3], stride=[2,2], padding=padding), conv_activation())
-        self.h3 = torch.nn.Sequential(torch.nn.Conv2d(conv2_size, conv3_size, kernel_size=[3,3], stride=[2,2], padding=padding), conv_activation())
-        self.avgpool = torch.nn.AvgPool2d(kernel_size=[3,3], stride=[2,2], padding=padding)
-        self.flatten = torch.nn.Flatten()
-        h, w, c = self._conv_outsize()
-        self.dense = torch.nn.Sequential(torch.nn.Linear(h*w*c, dense_size), dense_activation())
+        self.h1 = torch.nn.Sequential(torch.nn.ConvTranspose2d(output_size[0], deconv1_size, kernel_size=[3,3], stride=[2,2], padding=padding, output_padding=1), conv_activation())
+        self.h2 = torch.nn.Sequential(torch.nn.ConvTranspose2d(deconv1_size, deconv2_size, kernel_size=[3,3], stride=[2,2], padding=padding, output_padding=0), conv_activation())
+        self.h3 = torch.nn.Sequential(torch.nn.ConvTranspose2d(deconv2_size, deconv3_size, kernel_size=[3,3], stride=[2,2], padding=padding, output_padding=0), conv_activation())
+        self.h4 = torch.nn.Sequential(torch.nn.ConvTranspose2d(deconv3_size, deconv4_size, kernel_size=[3,3], stride=[2,2], padding=padding, output_padding=1), conv_activation())
+        c, h, w = self._conv_outsize()
         
         print('final outsize', (c, h, w))
         self.initialiser = weight_initialiser
@@ -322,21 +323,19 @@ class Universe2CNN(torch.nn.Module):
             self.initialiser(module.weight)
 
     def _conv_outsize(self):
-        _, h, w = self.input_shape
-        h, w = conv2d_outsize(h, w, self.h1[0].kernel_size, self.h1[0].stride, self.h1[0].padding)
-        h, w = conv2d_outsize(h, w, self.h2[0].kernel_size, self.h2[0].stride, self.h2[0].padding)
-        h, w = conv2d_outsize(h, w, self.h3[0].kernel_size, self.h3[0].stride, self.h3[0].padding)
-        h, w = conv2d_outsize(h, w, self.h3[0].kernel_size, self.h3[0].stride, self.h3[0].padding)
-        return h, w, self.h3[0].out_channels
+        _, h, w = self.output_size
+        h, w = deconv2d_outsize(h, w, self.h1[0].kernel_size, self.h1[0].stride, self.h1[0].padding, self.h1[0].dilation, self.h1[0].output_padding)
+        h, w = deconv2d_outsize(h, w, self.h2[0].kernel_size, self.h2[0].stride, self.h2[0].padding, self.h2[0].dilation, self.h2[0].output_padding)
+        h, w = deconv2d_outsize(h, w, self.h3[0].kernel_size, self.h3[0].stride, self.h3[0].padding, self.h3[0].dilation, self.h3[0].output_padding)
+        h, w = deconv2d_outsize(h, w, self.h4[0].kernel_size, self.h4[0].stride, self.h4[0].padding, self.h4[0].dilation, self.h4[0].output_padding)
+        return self.h4[0].out_channels, h, w
 
     def forward(self, x):
-        x = x/255 if self.scale else x
+        x = x.view(-1, *self.output_size)
         x = self.h1(x)
         x = self.h2(x)
         x = self.h3(x)
-        x = self.avgpool(x)
-        x = self.flatten(x)
-        x = self.dense(x)
+        x = self.h4(x)
         return x
 
 class UniverseCNN(torch.nn.Module):
@@ -349,9 +348,9 @@ class UniverseCNN(torch.nn.Module):
         self.h1 = torch.nn.Sequential(torch.nn.Conv2d(input_shape[0], conv1_size, kernel_size=[3,3], stride=[2,2], padding=padding), conv_activation())
         self.h2 = torch.nn.Sequential(torch.nn.Conv2d(conv1_size, conv2_size, kernel_size=[3,3], stride=[2,2], padding=padding), conv_activation())
         self.h3 = torch.nn.Sequential(torch.nn.Conv2d(conv2_size, conv3_size, kernel_size=[3,3], stride=[2,2], padding=padding), conv_activation())
-        self.h4 = torch.nn.Sequential(torch.nn.Conv2d(conv2_size, conv3_size, kernel_size=[3,3], stride=[2,2], padding=padding), conv_activation())
+        self.h4 = torch.nn.Sequential(torch.nn.Conv2d(conv3_size, conv4_size, kernel_size=[3,3], stride=[2,2], padding=padding), conv_activation())
         self.flatten = torch.nn.Flatten()
-        h, w, c = self._conv_outsize()
+        c, h, w = self._conv_outsize()
         self.dense_size = h*w*c
         print('final outsize', (c, h, w))
         self.initialiser = weight_initialiser
@@ -370,7 +369,7 @@ class UniverseCNN(torch.nn.Module):
         h, w = conv2d_outsize(h, w, self.h2[0].kernel_size, self.h2[0].stride, self.h2[0].padding)
         h, w = conv2d_outsize(h, w, self.h3[0].kernel_size, self.h3[0].stride, self.h3[0].padding)
         h, w = conv2d_outsize(h, w, self.h4[0].kernel_size, self.h4[0].stride, self.h4[0].padding)
-        return h, w, self.h4[0].out_channels
+        return self.h4[0].out_channels, h, w
 
     def forward(self, x):
         x = x/255 if self.scale else x
@@ -392,7 +391,7 @@ class NatureCNN(torch.nn.Module):
         self.h2 = torch.nn.Sequential(torch.nn.Conv2d(conv1_size, conv2_size, kernel_size=[4,4], stride=[2,2], padding=padding), conv_activation())
         self.h3 = torch.nn.Sequential(torch.nn.Conv2d(conv2_size, conv3_size, kernel_size=[3,3], stride=[1,1], padding=padding), conv_activation())
         self.flatten = torch.nn.Flatten()
-        h, w, c = self._conv_outsize()
+        c, h, w = self._conv_outsize()
         self.dense = torch.nn.Sequential(torch.nn.Linear(h*w*c, dense_size), dense_activation())
         self.initialiser = weight_initialiser
         self.init_weights()
@@ -409,7 +408,7 @@ class NatureCNN(torch.nn.Module):
         h, w = conv2d_outsize(h, w, self.h1[0].kernel_size, self.h1[0].stride, self.h1[0].padding)
         h, w = conv2d_outsize(h, w, self.h2[0].kernel_size, self.h2[0].stride, self.h2[0].padding)
         h, w = conv2d_outsize(h, w, self.h3[0].kernel_size, self.h3[0].stride, self.h3[0].padding)
-        return h, w, self.h3[0].out_channels
+        return self.h3[0].out_channels, h, w
 
     def forward(self, x):
         x = x/255 if self.scale else x
@@ -451,7 +450,7 @@ class MaskedRNN(torch.nn.Module):
             x = x.transpose(1, 0, 2)
         
         if mask is None:
-            mask = torch.zeros(x.shape[0], x.shape[1]).cuda()
+            mask = torch.zeros(x.shape[0], x.shape[1]).to(x.device)
         
         outputs = []
         for t in range(x.shape[0]):

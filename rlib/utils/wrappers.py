@@ -2,9 +2,7 @@ import gym
 import numpy as np
 from PIL import Image
 from collections import deque
-
 import torch
-from torch._C import device
 
 # Code was inspired from or modified from OpenAI baselines https://github.com/openai/baselines/tree/master/baselines/common
 
