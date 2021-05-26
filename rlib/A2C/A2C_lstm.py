@@ -97,8 +97,7 @@ class A2CLSTM_Trainer(SyncMultiEnvTrainer):
     class Runner(SyncMultiEnvTrainer.Runner):
         def __init__(self, model, env, num_envs, num_steps):
             super().__init__(model,env,num_steps)
-            c, h = self.model.get_initial_hidden(num_envs)
-            self.prev_hidden = (c.cuda(), h.cuda())
+            self.prev_hidden = self.model.get_initial_hidden(num_envs)
         
         def run(self,):
             rollout = []

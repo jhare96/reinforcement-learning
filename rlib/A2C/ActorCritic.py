@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 from rlib.networks.networks import MaskedLSTMCell, MaskedRNN
 from rlib.utils.schedulers import polynomial_sheduler
-from rlib.utils.utils import totorch, tonumpy
+from rlib.utils.utils import totorch, tonumpy, totorch_many
 
 class ActorCritic(torch.nn.Module):
     def __init__(self, model, input_size, action_size, entropy_coeff=0.01, value_coeff=0.5, lr=1e-3, lr_final=1e-6, decay_steps=6e5, grad_clip=0.5, build_optimiser=True, optim=torch.optim.Adam, optim_args={}, **model_args):
@@ -17,9 +17,9 @@ class ActorCritic(torch.nn.Module):
         self.action_size = action_size
 
         self.model = model(input_size, **model_args)
-        dense_size = self.model.dense_size 
-        self.policy_distrib = torch.nn.Linear(dense_size, action_size) # Actor
-        self.V = torch.nn.Linear(dense_size, 1) # Critic 
+        self.dense_size = self.model.dense_size 
+        self.policy_distrib = torch.nn.Linear(self.dense_size, action_size) # Actor
+        self.V = torch.nn.Linear(self.dense_size, 1) # Critic 
         
         if build_optimiser:
             self.optimiser = optim(self.parameters(), lr, **optim_args)
@@ -65,7 +65,7 @@ class ActorCritic(torch.nn.Module):
 
 
 class ActorCritic_LSTM(torch.nn.Module):
-    def __init__(self, model, input_size, action_size, cell_size, entropy_coeff=0.01, value_coeff=0.5, lr=1e-3, lr_final=1e-6, decay_steps=6e5, grad_clip=0.5, build_optimiser=True, optim=torch.optim.Adam, optim_args={}, **model_args):
+    def __init__(self, model, input_size, action_size, cell_size, lstm_input_size=None, entropy_coeff=0.01, value_coeff=0.5, lr=1e-3, lr_final=1e-6, decay_steps=6e5, grad_clip=0.5, build_optimiser=True, optim=torch.optim.Adam, optim_args={}, **model_args):
         super(ActorCritic_LSTM, self).__init__()
         self.lr = lr
         self.lr_final = lr_final
@@ -112,13 +112,16 @@ class ActorCritic_LSTM(torch.nn.Module):
         value = self.V(lstm_outputs).view(-1)
         return policy, value, hidden
     
-    def evaluate(self, state, hidden=None, done=None):
+    def evaluate(self, state:np.ndarray, hidden:np.ndarray=None, done=None):
+        state = totorch(state)
+        hidden = totorch_many(*hidden) if hidden is not None else None
         with torch.no_grad():
             policy, value, hidden = self.forward(state, hidden, done)
         return tonumpy(policy), tonumpy(value), hidden
     
     def backprop(self, state, R, action, hidden, done):
         state, R, action, done = totorch(state), totorch(R), totorch(action), totorch(done)
+        hidden = totorch_many(*hidden)
         action_onehot = F.one_hot(action.long(), num_classes=self.action_size)
         policy, value, hidden = self.forward(state, hidden, done)
         loss = self.loss(policy, R, value, action_onehot)
@@ -131,8 +134,8 @@ class ActorCritic_LSTM(torch.nn.Module):
         return loss.detach().cpu().numpy()
     
     def get_initial_hidden(self, batch_size):
-        return torch.zeros((batch_size, self.cell_size)), torch.zeros((batch_size, self.cell_size))
+        return np.zeros((batch_size, self.cell_size)), np.zeros((batch_size, self.cell_size))
     
     def mask_hidden(self, hidden, dones):
-        mask = totorch(1-dones).view(-1, 1)
+        mask = (1-dones).reshape(-1, 1)
         return (hidden[0]*mask, hidden[1]*mask)
