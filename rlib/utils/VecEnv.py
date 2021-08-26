@@ -1,10 +1,7 @@
 import numpy as np
 import gym
 import multiprocessing as mp
-from PIL import Image
 from itertools import chain
-import matplotlib.pyplot as plt
-from collections import deque
 
 # Code was inspired from or modified from OpenAI baselines https://github.com/openai/baselines/tree/master/baselines/common
 
@@ -34,7 +31,7 @@ class Env(object):
     def _recieve(self,):
         return self.parent.recv()
 
-    def step(self,action,blocking=True):
+    def step(self,action, blocking=True):
         #if self.open:
         results = self._send_step('step', action)
         # if blocking:
@@ -101,11 +98,11 @@ class Env(object):
 
 
 class BatchEnv(object):
-    def __init__(self, env_constructor, env_id, num_envs, blocking=False, **env_args):
+    def __init__(self, env_constructor, env_id, num_envs, blocking=False, make_args={}, **env_args):
         #self.envs = [Env(env_constructor(gym.make(env_id),**env_args),worker_id=i) for i in range(num_envs)]
         self.envs = []
         for i in range(num_envs):
-            env = gym.make(env_id)
+            env = gym.make(env_id, **make_args)
             self.envs.append(Env(env_constructor(env, **env_args)))
         #self.envs = [env_constructor(env_id=env_id,**env_args, worker_id=i) for i in range(num_envs)]
         self.blocking = blocking
@@ -235,7 +232,7 @@ class ChunkWorker(mp.Process):
 
 class DummyBatchEnv(object):
     def __init__(self, env_constructor, env_id, num_envs, make_args={}, **env_args):
-        self.envs = self.envs = [env_constructor(gym.make(env_id, **make_args),**env_args) for i in range(num_envs)]
+        self.envs = [env_constructor(gym.make(env_id, **make_args),**env_args) for i in range(num_envs)]
 
     def __len__(self):
         return len(self.envs)
@@ -249,11 +246,11 @@ class DummyBatchEnv(object):
     def step(self,actions):
         results = [env.step(action) for env, action in zip(self.envs,actions)]
         obs, rewards, done, info = zip(*results)
-        return np.stack(obs), np.stack(rewards), np.stack(done), info
+        return np.stack(obs).copy(), np.stack(rewards).copy(), np.stack(done).copy(), info
     
     def reset(self):
         obs = [env.reset() for env in self.envs]
-        return np.stack(obs)
+        return np.stack(obs).copy()
     
     def close(self):
         for env in self.envs:

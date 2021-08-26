@@ -175,7 +175,7 @@ class EpisodicLifeEnv(gym.Wrapper):
 
 class TimeLimitEnv(gym.Wrapper):
     def __init__(self, env, time_limit):
-        gym.Wrapper.__init__(self,env)
+        gym.Wrapper.__init__(self, env)
         self._time_limit=time_limit
         self._step = 0
     
@@ -194,7 +194,7 @@ class TimeLimitEnv(gym.Wrapper):
 
 class StackEnv(gym.Wrapper):
     def __init__(self, env, k=4):
-        gym.Wrapper.__init__(self,env)
+        gym.Wrapper.__init__(self, env)
         #self._stacked_frames = np.array(np.zeros([84,84,k]))
         self._stacked_frames = deque([], maxlen=k)
         self.k = k
@@ -228,10 +228,9 @@ class StackEnv(gym.Wrapper):
     #     return self._stacked_frames
 
 
-
 class AutoResetEnv(gym.Wrapper):
-    def __init__(self, env, k=4):
-        gym.Wrapper.__init__(self,env)
+    def __init__(self, env):
+        gym.Wrapper.__init__(self, env)
 
     def step(self, action):
         obs, reward, done, info = self.env.step(action)
@@ -240,8 +239,8 @@ class AutoResetEnv(gym.Wrapper):
         return obs, reward, done, info
 
 class ChannelsFirstEnv(gym.Wrapper):
-    def __init__(self, env, k=4):
-        gym.Wrapper.__init__(self,env)
+    def __init__(self, env):
+        gym.Wrapper.__init__(self, env)
 
     def step(self, action):
         obs, reward, done, info = self.env.step(action)
@@ -251,6 +250,21 @@ class ChannelsFirstEnv(gym.Wrapper):
         obs = self.env.reset(**kwargs)
         return obs.transpose(2, 0, 1)
 
+class GreyScaleEnv(gym.Wrapper):
+    def __init__(self, env):
+        gym.Wrapper.__init__(self, env)
+    
+    def preprocess(self,frame):
+        frame = np.dot(frame[...,:3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
+        return frame[:,:,None]
+
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        return self.preprocess(obs), reward, done, info
+    
+    def reset(self, **kwargs):
+        obs = self.env.reset(**kwargs)
+        return self.preprocess(obs)
 
 class ToTorchEnv(gym.Wrapper):
     def __init__(self, env, device='cuda:0'):
@@ -268,17 +282,21 @@ class ToTorchEnv(gym.Wrapper):
         obs = self.env.reset(**kwargs)
         return torch.from_numpy(obs).float().to(self.device)
 
-def apple_pickgame(env, auto_reset=False, max_steps=1000, torch=False):
+def apple_pickgame(env, k=1, grey_scale=False, auto_reset=False, max_steps=1000, channels_first=True):
     if auto_reset:
         env = AutoResetEnv(env)
     if max_steps is not None:
         env = TimeLimitEnv(env, time_limit=max_steps)
-    if torch:
+    if grey_scale:
+        env = GreyScaleEnv(env)
+    if k > 1:
+        env = StackEnv(env, k)
+    if channels_first:
         env = ChannelsFirstEnv(env)
     return env
 
 
-def AtariEnv(env, k=4, rescale=84, episodic=True, reset=True, clip_reward=True, Noop=True, time_limit=None, channels_first=True):
+def AtariEnv(env, k=4, rescale=84, episodic=True, reset=True, clip_reward=True, Noop=True, time_limit=None, channels_first=True, auto_reset=False):
     # Wrapper function for Determinsitic Atari env 
     # assert 'Deterministic' in env.spec.id
     if reset:
@@ -308,6 +326,9 @@ def AtariEnv(env, k=4, rescale=84, episodic=True, reset=True, clip_reward=True, 
     
     if time_limit is not None:
         env = TimeLimitEnv(env, time_limit)
+    
+    if auto_reset:
+        env = AutoResetEnv(env)
 
     if channels_first:
         env = ChannelsFirstEnv(env)

@@ -21,7 +21,7 @@ class A2CLSTM_Trainer(SyncMultiEnvTrainer):
                         render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars)
         
         
-        self.runner = self.Runner(self.model, self.env, self.num_envs, self.nsteps)
+        self.prev_hidden = self.model.get_initial_hidden(self.num_envs)
         
         hyper_params = {'learning_rate':model.lr, 'learning_rate_final':model.lr_final, 'lr_decay_steps':model.decay_steps , 'grad_clip':model.grad_clip, 'nsteps':self.nsteps, 'num_workers':self.num_envs,
                   'total_steps':self.total_steps, 'entropy_coefficient':model.entropy_coeff, 'value_coefficient':model.value_coeff}
@@ -37,7 +37,7 @@ class A2CLSTM_Trainer(SyncMultiEnvTrainer):
         s = 0
         # main loop
         for t in range(1,num_updates+1):
-            states, actions, rewards, first_hidden, dones, values, last_values = self.runner.run()
+            states, actions, rewards, first_hidden, dones, values, last_values = self.rollout()
             
             if self.return_type == 'nstep':
                 R = self.nstep_return(rewards, last_values, dones, gamma=self.gamma)
@@ -69,8 +69,7 @@ class A2CLSTM_Trainer(SyncMultiEnvTrainer):
         for episode in range(num_ep):
             state = env.reset()
             episode_score = []
-            c, h = self.model.get_initial_hidden(1)
-            hidden = (c.cuda(), h.cuda())
+            hidden = self.model.get_initial_hidden(1)
             for t in range(max_steps):
                 policy, value, hidden = self.model.evaluate(state[None, None], hidden)
                 #print('policy', policy, 'value', value)
@@ -93,26 +92,22 @@ class A2CLSTM_Trainer(SyncMultiEnvTrainer):
         if render:
             with self.lock:
                 env.close()
-
-    class Runner(SyncMultiEnvTrainer.Runner):
-        def __init__(self, model, env, num_envs, num_steps):
-            super().__init__(model,env,num_steps)
-            self.prev_hidden = self.model.get_initial_hidden(num_envs)
+            
         
-        def run(self,):
-            rollout = []
-            first_hidden = (self.prev_hidden[0].detach().clone(), self.prev_hidden[1].detach().clone())
-            for t in range(self.num_steps):
-                policies, values, hidden = self.model.evaluate(self.states[None], self.prev_hidden)
-                actions = fastsample(policies)
-                next_states, rewards, dones, infos = self.env.step(actions)
-                rollout.append((self.states, actions, rewards, values, dones))
-                self.states = next_states
-                self.prev_hidden = self.model.mask_hidden(hidden, dones) # reset hidden state at end of episode
-                
-            states, actions, rewards, values, dones = stack_many(*zip(*rollout))
-            _, last_values, _ = self.model.evaluate(self.states[None], self.prev_hidden)
-            return states, actions, rewards, first_hidden, dones, values, last_values
+    def rollout(self,):
+        rollout = []
+        first_hidden = self.prev_hidden
+        for t in range(self.nsteps):
+            policies, values, hidden = self.model.evaluate(self.states[None], self.prev_hidden)
+            actions = fastsample(policies)
+            next_states, rewards, dones, infos = self.env.step(actions)
+            rollout.append((self.states, actions, rewards, values, dones))
+            self.states = next_states
+            self.prev_hidden = self.model.mask_hidden(hidden, dones) # reset hidden state at end of episode
+            
+        states, actions, rewards, values, dones = stack_many(*zip(*rollout))
+        _, last_values, _ = self.model.evaluate(self.states[None], self.prev_hidden)
+        return states, actions, rewards, first_hidden, dones, values, last_values
             
 
 def main(env_id):
@@ -163,7 +158,9 @@ def main(env_id):
                         lr=1e-3,
                         lr_final=1e-4,
                         decay_steps=50e6//(num_envs*nsteps),
-                        grad_clip=0.5).cuda()
+                        grad_clip=0.5,
+                        optim=torch.optim.RMSprop,
+                        device='cuda')
 
     
     a2c_trainer = A2CLSTM_Trainer(envs=envs,
@@ -175,12 +172,11 @@ def main(env_id):
                                   return_type='GAE',
                                   total_steps=50e6,
                                   nsteps=nsteps,
-                                  validate_freq=1e5,
+                                  validate_freq=1e6,
                                   save_freq=0,
                                   render_freq=0,
                                   num_val_episodes=25,
                                   log_scalars=False)
-
     print(env_id)
     
     a2c_trainer.train()
@@ -188,7 +184,7 @@ def main(env_id):
     del model
 
 if __name__ == "__main__":
-    env_id_list = ['FreewayDeterministic-v4', 'SpaceInvadersDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
+    env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
     #env_id_list = ['MountainCar-v0', 'Acrobot-v1']
     #env_id_list = ['SuperMarioBros-1-1-v0']
     for env_id in env_id_list:

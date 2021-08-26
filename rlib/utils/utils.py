@@ -21,6 +21,9 @@ def fold_batch(x):
 def unfold_batch(x, length, batch_size):
     return x.reshape(length, batch_size, *x.shape[1:])
 
+def fold_many(*args):
+    return tuple([fold_batch(arg) for arg in args])
+
 def one_hot(x, num_classes):
     return np.eye(num_classes)[x]
 

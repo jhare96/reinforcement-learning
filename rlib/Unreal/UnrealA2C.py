@@ -1,4 +1,5 @@
 import torch
+from torch._C import device
 import torch.nn.functional as F
 import numpy as np
 import gym
@@ -15,6 +16,16 @@ from rlib.utils.wrappers import*
 from rlib.utils.schedulers import polynomial_sheduler
 
 # A2C version of Unsupervised Reinforcement Learning with Auxiliary Tasks (UNREAL) https://arxiv.org/abs/1611.05397
+
+def sign(x):
+    if x < 0:
+        return 2
+    elif x == 0:
+        return 0
+    elif x > 0:
+        return 1
+    else:
+        raise ValueError
 
 def concat_action_reward(actions, rewards, num_classes):
     concat = one_hot(actions, num_classes)
@@ -44,9 +55,9 @@ def AtariEnv__(env, k=4, episodic=True, reset=True, clip_reward=True, Noop=True,
     return env
 
 
-class Unreal_ActorCritic_LSTM(ActorCritic_LSTM):
-    def __init__(self, model, input_size, action_size, cell_size, entropy_coeff=0.01, value_coeff=0.5, lr=1e-4, lr_final=1e-6, decay_steps=50e6, grad_clip=0.5, build_optimiser=False, optim=torch.optim.Adam, optim_args={}, **model_args):
-        super(ActorCritic_LSTM, self).__init__()
+class Unreal_ActorCritic_LSTM(torch.nn.Module):
+    def __init__(self, model, input_size, action_size, cell_size, entropy_coeff=0.01, value_coeff=0.5, lr=1e-4, lr_final=1e-6, decay_steps=50e6, grad_clip=0.5, optim=torch.optim.Adam, optim_args={}, device='cuda', **model_args):
+        super(Unreal_ActorCritic_LSTM, self).__init__()
         self.lr = lr
         self.lr_final = lr_final
         self.input_size = input_size
@@ -56,14 +67,32 @@ class Unreal_ActorCritic_LSTM(ActorCritic_LSTM):
         self.grad_clip = grad_clip
         self.cell_size = cell_size
         self.action_size = action_size
+        self.device = device
 
 
-        self.model = model(input_size, **model_args)
+        self.model = model(input_size, **model_args).to(device)
         self.dense_size = self.model.dense_size
-        self.lstm = MaskedRNN(MaskedLSTMCell(cell_size, self.dense_size+action_size+1), time_major=True)
+        # self.lstm = MaskedRNN(MaskedLSTMCell(cell_size, self.dense_size+action_size+1), time_major=True)
+        self.lstm = MaskedLSTMBlock(self.dense_size+action_size+1, cell_size, time_major=True).to(device)
 
-        self.policy_distrib = torch.nn.Linear(cell_size, action_size) # Actor
-        self.V = torch.nn.Linear(cell_size, 1) # Critic 
+        self.policy_distrib = torch.nn.Linear(cell_size, action_size).to(device) # Actor
+        self.V = torch.nn.Linear(cell_size, 1).to(device) # Critic
+
+        self.optimiser = optim(self.parameters(), lr, **optim_args)
+        self.scheduler = polynomial_sheduler(self.optimiser, lr_final, decay_steps, power=1)
+
+    def loss(self, policy, R, V, actions_onehot):
+        Advantage = R - V
+        value_loss = 0.5 * torch.mean(torch.square(Advantage))
+
+        log_policy = torch.log(torch.clip(policy, 1e-6, 0.999999))
+        log_policy_actions = torch.sum(log_policy * actions_onehot, dim=1)
+        policy_loss =  torch.mean(-log_policy_actions * Advantage.detach())
+
+        entropy = torch.mean(torch.sum(policy * -log_policy, dim=1))
+        loss =  policy_loss + self.value_coeff * value_loss - self.entropy_coeff * entropy
+        return loss
+
 
     def lstm_forward(self, state, action_reward, hidden=None, done=None):
         T, num_envs = state.shape[:2]
@@ -81,15 +110,15 @@ class Unreal_ActorCritic_LSTM(ActorCritic_LSTM):
         return policy, value, hidden
     
     def evaluate(self, state:np.ndarray, action_reward:np.ndarray, hidden=None, done=None):
-        state, action_reward = totorch(state), totorch(action_reward)
-        hidden = totorch_many(*hidden) if hidden is not None else None
+        state, action_reward = totorch_many(state, action_reward, device=self.device)
+        hidden = totorch_many(*hidden, device=self.device) if hidden is not None else None
         with torch.no_grad():
             policy, value, hidden = self.forward(state, action_reward, hidden, done)
         return tonumpy(policy), tonumpy(value), tonumpy_many(*hidden)
     
     def backprop(self, state, R, action, action_reward, hidden, done):
-        state, R, action, action_reward, done = totorch_many(state, R, action, action_reward, done)
-        hidden = totorch_many(*hidden)
+        state, R, action, action_reward, done = totorch_many(state, R, action, action_reward, done, device=self.device)
+        hidden = totorch_many(*hidden, device=self.device)
         action_onehot = F.one_hot(action.long(), num_classes=self.action_size)
         policy, value, hidden = self.forward(state, action_reward, hidden, done)
         loss = self.loss(policy, R, value, action_onehot)
@@ -100,11 +129,18 @@ class Unreal_ActorCritic_LSTM(ActorCritic_LSTM):
         self.optimiser.zero_grad()
         self.scheduler.step()
         return loss.detach().cpu().numpy()
+    
+    def get_initial_hidden(self, batch_size):
+        return np.zeros((1, batch_size, self.cell_size)), np.zeros((1, batch_size, self.cell_size))
+    
+    def mask_hidden(self, hidden, dones):
+        mask = (1-dones).reshape(-1, 1)
+        return (hidden[0]*mask, hidden[1]*mask)
 
 
 class UnrealA2C(torch.nn.Module):
     def __init__(self, policy_model, input_shape, action_size, cell_size, pixel_control=True, RP=1.0, PC=1.0, VR=1.0, entropy_coeff=0.001, value_coeff=0.5,
-                    lr=1e-3, lr_final=1e-6, decay_steps=50e6, grad_clip=0.5, policy_args={}, optim=torch.optim.Adam, optim_args={}):
+                    lr=1e-3, lr_final=1e-6, decay_steps=50e6, grad_clip=0.5, policy_args={}, optim=torch.optim.Adam, optim_args={}, device='cuda'):
         super(UnrealA2C, self).__init__()
         self.RP, self.PC, self.VR = RP, PC, VR
         self.lr, self.lr_final, self.decay_steps = lr, lr_final, decay_steps
@@ -112,6 +148,7 @@ class UnrealA2C(torch.nn.Module):
         self.grad_clip = grad_clip
         self.action_size = action_size
         self.pixel_control = pixel_control
+        self.device = device
 
         try:
             iterator = iter(input_shape)
@@ -119,17 +156,17 @@ class UnrealA2C(torch.nn.Module):
             input_size = (input_shape,)
         
         self.policy = Unreal_ActorCritic_LSTM(policy_model, input_shape, action_size, cell_size, entropy_coeff=entropy_coeff, value_coeff=value_coeff,
-                                        lr=lr, lr_final=lr, decay_steps=decay_steps, build_optimiser=False, grad_clip=grad_clip, **policy_args)
+                                        lr=lr, lr_final=lr, decay_steps=decay_steps, build_optimiser=False, grad_clip=grad_clip, device=device, **policy_args)
         
         if pixel_control:
-            self.feat_map = torch.nn.Sequential(torch.nn.Linear(self.policy.cell_size, 32*8*8), torch.nn.ReLU())
-            self.deconv1 = torch.nn.Sequential(torch.nn.ConvTranspose2d(32, 32, kernel_size=[3,3], stride=[1,1]), torch.nn.ReLU())
-            self.deconv_advantage = torch.nn.ConvTranspose2d(32, action_size, kernel_size=[3,3], stride=[2,2])
-            self.deconv_value = torch.nn.ConvTranspose2d(32, 1, kernel_size=[3,3], stride=[2,2])
+            self.feat_map = torch.nn.Sequential(torch.nn.Linear(self.policy.cell_size, 32*8*8), torch.nn.ReLU()).to(device)
+            self.deconv1 = torch.nn.Sequential(torch.nn.ConvTranspose2d(32, 32, kernel_size=[3,3], stride=[1,1]), torch.nn.ReLU()).to(device)
+            self.deconv_advantage = torch.nn.ConvTranspose2d(32, action_size, kernel_size=[3,3], stride=[2,2]).to(device)
+            self.deconv_value = torch.nn.ConvTranspose2d(32, 1, kernel_size=[3,3], stride=[2,2]).to(device)
                 
         # reward model
-        self.r1 = torch.nn.Sequential(torch.nn.Linear(self.policy.dense_size*3, 128), torch.nn.ReLU())
-        self.r2 = torch.nn.Linear(128, 3)
+        self.r1 = torch.nn.Sequential(torch.nn.Linear(self.policy.dense_size*3, 128), torch.nn.ReLU()).to(device)
+        self.r2 = torch.nn.Linear(128, 3).to(device)
 
         self.optimiser = optim(self.parameters(), lr, **optim_args)
         self.scheduler = polynomial_sheduler(self.optimiser, lr_final, decay_steps, power=1)
@@ -152,7 +189,7 @@ class UnrealA2C(torch.nn.Module):
         return qaux
 
     def get_pixel_control(self, state:np.ndarray, action_reward, hidden):
-        state, action_reward, hidden = totorch(state), totorch(action_reward), totorch_many(*hidden)
+        state, action_reward, hidden = totorch(state, self.device), totorch(action_reward, self.device), totorch_many(*hidden, device=self.device)
         with torch.no_grad():
             lstm_state, _ = self.policy.lstm_forward(state, action_reward, hidden, done=None)
             Qaux = self.Qaux(lstm_state)
@@ -177,8 +214,8 @@ class UnrealA2C(torch.nn.Module):
         return torch.mean(torch.square(R - V))
         
     def forward_loss(self, states, R, actions, action_rewards, hidden, dones):
-        states, R, actions, action_rewards, dones = totorch_many(states, R, actions, action_rewards, dones)
-        hidden = totorch_many(*hidden)
+        states, R, actions, action_rewards, dones = totorch_many(states, R, actions, action_rewards, dones, device=self.device)
+        hidden = totorch_many(*hidden, device=self.device)
         actions_onehot = F.one_hot(actions.long(), num_classes=self.action_size)
         policies, values, _ = self.forward(states, action_rewards, hidden, dones)
         forward_loss = self.policy.loss(policies, R, values, actions_onehot)
@@ -186,8 +223,8 @@ class UnrealA2C(torch.nn.Module):
     
     def auxiliary_loss(self, reward_states, rewards, Qaux_target, Qaux_actions, replay_states, replay_R, replay_hidden, replay_dones, replay_actsrews):
         reward_states, rewards, Qaux_target, Qaux_actions, replay_states, replay_R, replay_dones, replay_actsrews = totorch_many(reward_states, rewards, Qaux_target, Qaux_actions,
-                                                                                                                        replay_states, replay_R, replay_dones, replay_actsrews)
-        replay_hidden = totorch_many(*replay_hidden)
+                                                                                                                        replay_states, replay_R, replay_dones, replay_actsrews, device=self.device)
+        replay_hidden = totorch_many(*replay_hidden, device=self.device)
         lstm_state, _ = self.policy.lstm_forward(replay_states, replay_actsrews, replay_hidden, replay_dones)
         replay_values = self.policy.V(lstm_state)
         
@@ -231,7 +268,10 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
                             save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars)
         
         self.replay = deque([], maxlen=2000)
-        self.runner = self.Runner(self.model, self.env, self.nsteps, self.replay)
+        self.action_size = self.model.action_size
+        self.prev_hidden = self.model.get_initial_hidden(len(self.env))
+        zeros = np.zeros((len(self.env)), dtype=np.int32)
+        self.prev_actions_rewards = concat_action_reward(zeros, zeros, self.action_size+1) # start with action 0 and reward 0
 
         hyper_paras = {'learning_rate':model.lr, 'learning_rate_final':model.lr_final, 'lr_decay_steps':model.decay_steps , 'grad_clip':model.grad_clip, 'nsteps':nsteps, 'num_workers':self.num_envs,
                   'total_steps':self.total_steps, 'entropy_coefficient':model.entropy_coeff, 'value_coefficient':0.5}
@@ -242,7 +282,7 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
     
     def populate_memory(self):
         for t in range(2000//self.nsteps):
-            self.runner.run()
+            self.rollout()
     
     def auxiliary_target(self, prev_state, states, values, dones):
         T = len(states)
@@ -277,16 +317,16 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
         replay_states = np.stack([replay_sample[i][0][worker] for i in range(len(replay_sample))])
         replay_actions = np.stack([replay_sample[i][1][worker] for i in range(len(replay_sample))])
         replay_rewards = np.stack([replay_sample[i][2][worker] for i in range(len(replay_sample))])
-        replay_hiddens = np.stack([replay_sample[i][3] for i in range(len(replay_sample))])[:,:,worker,:]
+        replay_hiddens = np.stack([replay_sample[i][3] for i in range(len(replay_sample))])[:,:,:,worker,:]
         replay_actsrews = np.stack([replay_sample[i][4][worker] for i in range(len(replay_sample))])
         replay_dones = np.stack([replay_sample[i][5][worker] for i in range(len(replay_sample))])
 
         next_state = self.replay[sample_start+self.nsteps][0][worker][None] # get state 
-        _, replay_values, *_ = self.model.evaluate(next_state[None], replay_actsrews[-1][None], replay_hiddens[-1,:].reshape(2,1,-1))
+        _, replay_values, *_ = self.model.evaluate(next_state[None], replay_actsrews[-1][None], replay_hiddens[-1].reshape(2,1,1,-1))
         replay_R = self.nstep_return(replay_rewards, replay_values, replay_dones)
 
         prev_states = self.replay[sample_start-1][0][worker]
-        Qaux_value = self.model.get_pixel_control(next_state[None], replay_actsrews[-1][None], replay_hiddens[-1,:].reshape(2,1,-1))[0]
+        Qaux_value = self.model.get_pixel_control(next_state[None], replay_actsrews[-1][None], replay_hiddens[-1].reshape(2,1,1,-1))[0]
         Qaux_target = self.auxiliary_target(prev_states, replay_states, np.max(Qaux_value, axis=0), replay_dones)
         replay_hidden = (replay_hiddens[0][:1], replay_hiddens[0][1:])
 
@@ -311,7 +351,7 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
         
         
         reward_states = np.stack([self.replay[i][0][worker] for i in range(idx-3,idx)])
-        reward = np.array([int(np.sign(replay_rewards[idx,worker]))])
+        reward = np.array([sign(replay_rewards[idx,worker])])
         return reward_states, reward
     
     def _train_nstep(self):
@@ -323,7 +363,7 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
 
         # main loop
         for t in range(1,num_updates+1):
-            states, actions, rewards, hidden_init, prev_acts_rewards, dones, last_values = self.runner.run()
+            states, actions, rewards, hidden_init, prev_acts_rewards, dones, last_values = self.rollout()
 
             R = self.nstep_return(rewards, last_values, dones, clip=False)
             # stack all states, actions and Rs across all workers into a single batch
@@ -355,28 +395,26 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
             super().__init__(model, env, num_steps)
             self.replay = replay
             self.action_size = self.model.action_size
-            self.prev_hidden = self.model.get_initial_hidden(len(self.env))
-            zeros = np.zeros((len(self.env)), dtype=np.int32)
-            self.prev_actions_rewards = concat_action_reward(zeros, zeros, self.action_size+1) # start with action 0 and reward 0
-
-        def run(self,):
-            rollout = []
-            first_hidden = self.prev_hidden
-            for t in range(self.num_steps):
-                policies, values, hidden = self.model.evaluate(self.states[None], self.prev_actions_rewards, self.prev_hidden)
-                #Qaux = self.model.get_pixel_control(self.states, self.prev_hidden, self.prev_actions_rewards[None])
-                actions = fastsample(policies)
-                next_states, rewards, dones, infos = self.env.step(actions)
-
-                rollout.append((self.states, actions, rewards, self.prev_actions_rewards, dones, infos))
-                self.replay.append((self.states, actions, rewards, self.prev_hidden, self.prev_actions_rewards, dones)) # add to replay memory
-                self.states = next_states
-                self.prev_hidden = self.model.mask_hidden(hidden, dones) # reset hidden state at end of episode
-                self.prev_actions_rewards = concat_action_reward(actions, rewards, self.action_size+1)
             
-            states, actions, rewards, prev_actions_rewards, dones, infos = stack_many(*zip(*rollout))
-            _, last_values, _ = self.model.evaluate(self.states[None], self.prev_actions_rewards, self.prev_hidden)
-            return states, actions, rewards, first_hidden, prev_actions_rewards, dones, last_values
+
+    def rollout(self,):
+        rollout = []
+        first_hidden = self.prev_hidden
+        for t in range(self.nsteps):
+            policies, values, hidden = self.model.evaluate(self.states[None], self.prev_actions_rewards, self.prev_hidden)
+            #Qaux = self.model.get_pixel_control(self.states, self.prev_hidden, self.prev_actions_rewards[None])
+            actions = fastsample(policies)
+            next_states, rewards, dones, infos = self.env.step(actions)
+
+            rollout.append((self.states, actions, rewards, self.prev_actions_rewards, dones, infos))
+            self.replay.append((self.states, actions, rewards, self.prev_hidden, self.prev_actions_rewards, dones)) # add to replay memory
+            self.states = next_states
+            self.prev_hidden = self.model.mask_hidden(hidden, dones) # reset hidden state at end of episode
+            self.prev_actions_rewards = concat_action_reward(actions, rewards, self.action_size+1)
+        
+        states, actions, rewards, prev_actions_rewards, dones, infos = stack_many(*zip(*rollout))
+        _, last_values, _ = self.model.evaluate(self.states[None], self.prev_actions_rewards, self.prev_hidden)
+        return states, actions, rewards, first_hidden, prev_actions_rewards, dones, last_values
 
     def get_action(self, state):
         policy, value = self.model.forward(state)
@@ -415,7 +453,7 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
 
 def main(env_id):
     num_envs = 32
-    nsteps = 20
+    nsteps = 128
 
     env = gym.make(env_id)
     
@@ -427,9 +465,9 @@ def main(env_id):
 
     elif 'ApplePicker' in env_id:
         print('ApplePicker')
-        make_args = {'num_objects':100, 'default_reward':-0.1}
-        val_envs = [gym.make(env_id, **make_args) for i in range(10)]
-        envs = DummyBatchEnv(apple_pickgame, env_id, num_envs, k=1, max_steps=10000, auto_reset=True, make_args=make_args)
+        make_args = {'num_objects':100, 'default_reward':-0.01}
+        val_envs = [apple_pickgame(gym.make(env_id, **make_args), max_steps=5000, auto_reset=True) for i in range(10)]
+        envs = DummyBatchEnv(apple_pickgame, env_id, num_envs, max_steps=5000, auto_reset=True, make_args=make_args)
         print(val_envs[0])
         print(envs.envs[0])
 
@@ -442,7 +480,7 @@ def main(env_id):
             reset = False
             print('only stack frames')
         
-        val_envs = [AtariEnv__(gym.make(env_id), k=1, episodic=False, reset=reset, clip_reward=False) for i in range(1)]
+        val_envs = [AtariEnv__(gym.make(env_id), k=1, episodic=False, reset=reset, clip_reward=False) for i in range(10)]
         envs = BatchEnv(AtariEnv__, env_id, num_envs, blocking=False, k=1, reset=reset, episodic=True, clip_reward=True, time_limit=4500)
         
     
@@ -467,8 +505,8 @@ def main(env_id):
                       lr_final=1e-6,
                       decay_steps=50e6//(num_envs*nsteps),
                       grad_clip=0.5,
-                      policy_args={}).cuda()
-
+                      policy_args={'dense_size':256},
+                      device='cuda')
     
 
     auxiliary = Unreal_Trainer(envs=envs,
@@ -479,7 +517,7 @@ def main(env_id):
                                   train_mode='nstep',
                                   total_steps=50e6,
                                   nsteps=nsteps,
-                                  validate_freq=1e5,
+                                  validate_freq=1e6,
                                   save_freq=0,
                                   render_freq=0,
                                   num_val_episodes=10,
@@ -491,9 +529,10 @@ def main(env_id):
 
 
 if __name__ == "__main__":
-    env_id_list = ['PrivateEyeDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'SpaceInvadersDeterministic-v4', 'PongDeterministic-v4' ]
+    import apple_picker
+    #env_id_list = ['SpaceInvadersDeterministic-v4', 'PrivateEyeDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4' ]
     #env_id_list = ['MountainCar-v0','CartPole-v1']
-    #env_id_list = ['ApplePicker-v0']
+    env_id_list = ['ApplePicker-v0']
     for env_id in env_id_list:
         main(env_id)
     

@@ -17,8 +17,6 @@ class A2C(SyncMultiEnvTrainer):
         super().__init__(envs, model, val_envs, log_dir=log_dir, model_dir=model_dir, train_mode=train_mode, return_type=return_type, total_steps=total_steps, nsteps=nsteps,
          gamma=gamma, lambda_=lambda_, validate_freq=validate_freq, save_freq=save_freq, render_freq=render_freq,
          num_val_episodes=num_val_episodes, log_scalars=log_scalars)
-        
-        self.runner = self.Runner(self.model, self.env, self.nsteps)
 
         hyperparas = {'learning_rate':model.lr, 'learning_rate_final':model.lr_final, 'lr_decay_steps':model.decay_steps , 'grad_clip':model.grad_clip, 'nsteps':nsteps, 'num_workers':self.num_envs,
                   'total_steps':total_steps, 'entropy_coefficient':model.entropy_coeff, 'value_coefficient':model.value_coeff , 'return type':self.return_type}
@@ -27,29 +25,23 @@ class A2C(SyncMultiEnvTrainer):
             filename = log_dir + '/' + 'hyperparameters.txt'
             self.save_hyperparameters(filename , **hyperparas)
 
-    class Runner(SyncMultiEnvTrainer.Runner):
-        def __init__(self, model, env, num_steps):
-            super().__init__(model, env, num_steps)
-        
-        def run(self,):
-            rollout = []
-            for t in range(self.num_steps):
-                policies, values = self.model.evaluate(self.states)
-                actions = fastsample(policies)
-                next_states, rewards, dones, infos = self.env.step(actions)
-                rollout.append((self.states, actions, rewards, values, dones))
-                self.states = next_states
-            
-            states, actions, rewards, values, dones = stack_many(*zip(*rollout))
-            _, last_values = self.model.evaluate(next_states)
-            return states, actions, rewards, dones, values, last_values
-    
     def get_action(self, state):
         policy, value = self.model.evaluate(state)
         action = int(fastsample(policy))
         return action
     
-    
+    def rollout(self,):
+        rollout = []
+        for t in range(self.nsteps):
+            policies, values = self.model.evaluate(self.states)
+            actions = fastsample(policies)
+            next_states, rewards, dones, infos = self.env.step(actions)
+            rollout.append((self.states, actions, rewards, values, dones))
+            self.states = next_states
+        
+        states, actions, rewards, values, dones = stack_many(*zip(*rollout))
+        _, last_values = self.model.evaluate(next_states)
+        return states, actions, rewards, dones, values, last_values
         
     def _train_onestep(self):
         states = self.env.reset()
@@ -131,7 +123,7 @@ def main(env_id):
                         lr_final=1e-4,
                         entropy_coeff=0.01,
                         decay_steps=50e6//(num_envs*nsteps),
-                        grad_clip=0.5).cuda()
+                        grad_clip=0.5)
     
 
     a2c = A2C(envs=envs,

@@ -339,7 +339,7 @@ class DeconvUniverse(torch.nn.Module):
         return x
 
 class UniverseCNN(torch.nn.Module):
-    def __init__(self, input_shape, conv1_size=64, conv2_size=64, conv3_size=64, conv4_size=64, padding=[0,0], conv_activation=torch.nn.ELU, weight_initialiser=torch.nn.init.xavier_uniform_, scale=True, trainable=True):
+    def __init__(self, input_shape, conv1_size=64, conv2_size=64, conv3_size=64, conv4_size=64, padding=[0,0], dense_size=256, conv_activation=torch.nn.ELU, dense_activation=torch.nn.ReLU, weight_initialiser=torch.nn.init.xavier_uniform_, scale=True, trainable=True):
         # input_shape [channels, height, width]
         super(UniverseCNN, self).__init__()
         self.scale = scale
@@ -351,7 +351,9 @@ class UniverseCNN(torch.nn.Module):
         self.h4 = torch.nn.Sequential(torch.nn.Conv2d(conv3_size, conv4_size, kernel_size=[3,3], stride=[2,2], padding=padding), conv_activation())
         self.flatten = torch.nn.Flatten()
         c, h, w = self._conv_outsize()
-        self.dense_size = h*w*c
+        self.dense = torch.nn.Sequential(torch.nn.Linear(h*w*c, dense_size), dense_activation())
+        #self.dense_size = h*w*c
+        self.dense_size = dense_size
         print('final outsize', (c, h, w))
         self.initialiser = weight_initialiser
         self.init_weights()
@@ -378,6 +380,7 @@ class UniverseCNN(torch.nn.Module):
         x = self.h3(x)
         x = self.h4(x)
         x = self.flatten(x)
+        x = self.dense(x)
         return x
 
 class NatureCNN(torch.nn.Module):
@@ -483,20 +486,20 @@ class MaskedLSTMCell(torch.nn.Module):
         self.Wi, self.Wh, self.bi, self.bh = gemmlstmgate(cell_size, input_size, trainable) # batch gemm
  
     def init_hidden(self, batch_size, dtype, device):
-        cell = torch.zeros(batch_size, self._cell_size, dtype=dtype, device=device)
-        hidden = torch.zeros(batch_size, self._cell_size, dtype=dtype, device=device)
+        cell = torch.zeros(1, batch_size, self._cell_size, dtype=dtype, device=device)
+        hidden = torch.zeros(1, batch_size, self._cell_size, dtype=dtype, device=device)
         return (cell, hidden)
 
-    def forward(self, x, state=None, mask=None):
+    def forward(self, x, state=None, done=None):
         if state is None:
             prev_cell, prev_hidden = self.init_hidden(x.shape[0], input.dtype, input.device)
         else:
             prev_cell, prev_hidden = state
-        if mask is not None:
-            prev_cell *= (1-mask).view(-1, 1)
-            prev_hidden *= (1-mask).view(-1, 1)
+        if done is not None:
+            prev_cell *= (1-done).view(-1, 1)
+            prev_hidden *= (1-done).view(-1, 1)
             
-        gates = (torch.matmul(x, self.Wi.t()) + self.bi + torch.matmul(prev_hidden, self.Wh.t())) + self.bh
+        gates = (torch.matmul(x, self.Wi.t()) + self.bi + torch.matmul(prev_hidden[0], self.Wh.t())) + self.bh
         i, f, c, o = gates.chunk(4, 1)
         i = torch.sigmoid(i)
         f = torch.sigmoid(f)
@@ -506,3 +509,36 @@ class MaskedLSTMCell(torch.nn.Module):
         cell = prev_cell * f + i * c
         hidden = o * torch.tanh(cell)
         return hidden, (cell, hidden)
+
+
+class MaskedLSTMBlock(torch.nn.Module):
+    def __init__(self, input_size, hidden_size, time_major=True):
+        super(MaskedLSTMBlock, self).__init__()
+        self.time_major = time_major
+        batch_first = not time_major
+        self.hidden_size = hidden_size
+        self.lstm = torch.nn.LSTM(input_size=input_size, hidden_size=hidden_size, batch_first=batch_first)
+
+    def forward(self, x, hidden, done):
+        if not self.time_major:
+            x = x.transpose(1, 0, 2)
+        
+        if done is not None:
+            mask = (1-done)
+        else:
+            mask = torch.ones(x.shape[0], x.shape[1]).to(x.device)
+        
+        mask_zeros = ((mask[1:]==0).any(dim=-1).nonzero()+1).view(-1).cpu().numpy().tolist()
+        mask_zeros = [0] + mask_zeros + [mask.shape[0]+1]
+        outputs = []
+        for i in range(len(mask_zeros)-1):
+            start = mask_zeros[i]
+            end = mask_zeros[i+1]
+            #print('start, end', (start, end))
+            hidden = (mask[start].view(-1,1)*hidden[0], mask[start].view(-1,1)*hidden[1])
+            out, hidden = self.lstm(x[start:end], hidden)
+            outputs.append(out)
+
+        outputs = torch.cat(outputs, dim=0)
+        outputs = outputs if self.time_major else outputs.transpose(1, 0, 2)
+        return outputs, hidden
