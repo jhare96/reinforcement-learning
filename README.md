@@ -1,13 +1,14 @@
 # reinforcement-learning
 
-A small reinforcement learning library used for MSc dissertation project ['Dealing with sparse rewards in reinforcement learning'](https://arxiv.org/abs/1910.09281) at the University of Sheffield.  
+A small Pytorch based reinforcement learning library  
+as used for my MSc dissertation project ['Dealing with sparse rewards in reinforcement learning'](https://arxiv.org/abs/1910.09281).  
 
 This repository has working implementations of the following reinforcement agents:  
-          1. Advantage Actor Critic (A2C)  
+          1. Advantage Actor Critic [(A2C)](https://openai.com/blog/baselines-acktr-a2c/)  
           2. Synchronous n-step Double Deep Q Network (Sync-DDQN)  
-          3. Proximal Policy Optimisation (PPO)  
-          4. Random Network Distillation (RND)  
-          5. UNREAL-A2C2, A2C-CNN version of the UNREAL agent  
+          3. Proximal Policy Optimisation [(PPO)](https://arxiv.org/abs/1707.06347)  
+          4. Random Network Distillation [(RND)](https://arxiv.org/abs/1810.12894)
+          5. UNREAL-A2C2, A2C-CNN version of the [(UNREAL agent)](https://deepmind.com/blog/article/reinforcement-learning-unsupervised-auxiliary-tasks)  
           6. Random Network Distillation with Auxiliary Learning (RANDAL), novel solution combining UNREAL and RND agents  
           
           
