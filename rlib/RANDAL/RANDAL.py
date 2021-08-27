@@ -1,209 +1,211 @@
-import tensorflow as tf
 import numpy as np
-import scipy
+import torch 
+import torch.nn.functional as F
 import gym
-import os, time, datetime
-import threading
-from rlib.networks.networks import*
-from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+import time, datetime
+
+from rlib.RND.RND import PPOIntrinsic, PredictorCNN, PredictorMLP, RewardForwardFilter
+from rlib.networks.networks import *
 from rlib.utils.VecEnv import*
-from rlib.utils.utils import fold_batch, one_hot, Welfords_algorithm, stack_many, RunningMeanStd
+from rlib.utils.wrappers import*
+from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.utils.utils import fastsample, fold_batch, tonumpy, totorch, totorch_many, stack_many, fold_many, RunningMeanStd
+from rlib.utils.schedulers import polynomial_sheduler
 
-from rlib.RND.RND import PPO, predictor_cnn, predictor_mlp, rolling_obs, RewardForwardFilter
+def sign(x):
+    if x < 0:
+        return 2
+    elif x == 0:
+        return 0
+    elif x > 0:
+        return 1
+    else:
+        raise ValueError
 
-
-
-
-class RANDAL(object):
-    def __init__(self, policy_model, target_model, input_shape, action_size, pixel_control=True, value_coeff=1.0, intr_coeff=0.5, extr_coeff=1.0, lr=1e-4, decay_steps=6e5, grad_clip = 0.5, policy_args ={}, RND_args={}):
-        self.intr_coeff, self.extr_coeff =  intr_coeff, extr_coeff
-        self.lr, self.decay_steps = lr, decay_steps
+class RANDAL(torch.nn.Module):
+    def __init__(self, policy_model, target_model, input_size, action_size, pixel_control=True, intr_coeff=0.5, extr_coeff=1.0, entropy_coeff=0.001, policy_clip=0.1,
+                    lr=1e-4, lr_final=1e-5, decay_steps=6e5, grad_clip=0.5, RP=1, VR=1, PC=1, policy_args={}, RND_args={}, optim=torch.optim.Adam, optim_args={}, device='cuda'):
+        super(RANDAL, self).__init__()
+        self.lr = lr
+        self.entropy_coeff = entropy_coeff
+        self.intr_coeff = intr_coeff
+        self.extr_coeff = extr_coeff
+        self.pixel_control = pixel_control
         self.grad_clip = grad_clip
         self.action_size = action_size
-        self.sess = None
-        self.pixel_control = pixel_control
-        #self.pred_prob = 1
+        self.device = device
+        self.RP = RP # reward prediction 
+        self.VR = VR # value replay
+        self.PC = PC # pixel control
 
-        try:
-            iterator = iter(input_shape)
-        except TypeError:
-            input_size = (input_shape,)
         
+        self.policy = PPOIntrinsic(policy_model, input_size, action_size, lr=lr, lr_final=lr_final, decay_steps=decay_steps, grad_clip=grad_clip,
+                            entropy_coeff=entropy_coeff, policy_clip=policy_clip, extr_coeff=extr_coeff, intr_coeff=intr_coeff, build_optimiser=False, **policy_args)
 
-        with tf.variable_scope('Policy', reuse=tf.AUTO_REUSE):
-            self.policy = PPO(policy_model, input_shape, action_size, value_coeff=value_coeff, intr_coeff=intr_coeff, extr_coeff=extr_coeff, lr=lr, **policy_args)
-            self.replay_policy = PPO(policy_model, input_shape, action_size, value_coeff=value_coeff, intr_coeff=intr_coeff, extr_coeff=extr_coeff, lr=lr, **policy_args)
+        target_size = (1, input_size[1], input_size[2]) if len(input_size) == 3 else input_size # only use last frame in frame-stack for convolutions
         
-        if len(input_shape) == 3: # if obs is img, only use final frame
-            next_state_shape = input_shape[:-1] + (1,)
-        else: 
-            next_state_shape = input_shape
-        self.next_state = tf.placeholder(tf.float32, shape=[None, *next_state_shape], name='next_state')
-        self.state_mean = tf.placeholder(tf.float32, shape=[*next_state_shape], name="mean")
-        self.state_std = tf.placeholder(tf.float32, shape=[*next_state_shape], name="std")
-        norm_next_state = tf.clip_by_value((self.next_state - self.state_mean) / self.state_std, -5, 5)
+        # randomly weighted and fixed neural network, acts as a random_id for each state
+        self.target_model = target_model(target_size, trainable=False, **RND_args).to(device)
 
-        with tf.variable_scope('target_model'):
-            target_state = target_model(norm_next_state, trainable=False)
+        # learns to predict target model 
+        # i.e. provides rewards based ability to predict a fixed random function, thus behaves as density map of explored areas
+        self.predictor_model = target_model(target_size, trainable=True, **RND_args).to(device)
         
-        with tf.variable_scope('predictor_model'):
-            pred_next_state = target_model(norm_next_state, trainable=True)
-            self.intr_reward = tf.reduce_mean(tf.square(pred_next_state - tf.stop_gradient(target_state)), axis=-1)
-            feat_loss = tf.reduce_mean(self.intr_reward)
+        self.optimiser = optim(self.parameters(), lr, **optim_args)
+        self.scheduler = polynomial_sheduler(self.optimiser, lr_final, decay_steps, power=1)
 
-        with tf.variable_scope('pixel_control', reuse=tf.AUTO_REUSE):
-            self.Qaux = self._build_pixel(self.replay_policy.dense)
-            
-            self.Qaux_target = tf.placeholder("float", [None, 21, 21]) # temporal difference target for Q_aux
-            self.Qaux_actions = tf.placeholder(tf.int32, [None])
-            one_hot_actions = tf.one_hot(self.Qaux_actions, action_size)
-            pixel_action = tf.reshape(one_hot_actions, shape=[-1,1,1, action_size], name='pixel_action')
-            Q_aux_action = tf.reduce_sum(self.Qaux * pixel_action, axis=3)
-            pixel_loss = 0.5 * tf.reduce_mean(tf.square(self.Qaux_target - Q_aux_action)) # l2 loss for Q_aux over all pixels and batch
-        
-        with tf.variable_scope('value_replay'):
-            replay_loss = 0.5 * tf.reduce_mean(tf.square(self.replay_policy.R_extr - self.replay_policy.Ve))
-
-
-        self.reward_state = tf.placeholder(tf.float32, shape=[None, *input_shape], name='reward_state')
-        with tf.variable_scope('Policy/encoder_network', reuse=True):
-            reward_enc = policy_model(self.reward_state)
-
-        with tf.variable_scope('reward_model'):
-            self.reward_target = tf.placeholder(tf.float32, shape=[None, 3], name='reward_target')
-            r1 = mlp_layer(reward_enc, 128, activation=tf.nn.relu, name='reward_hidden')
-            print('rl shape', r1.get_shape().as_list())
-            pred_reward = mlp_layer(r1, 3, activation=None, name='pred_reward')
-            print('pred reward shape', pred_reward.get_shape().as_list())
-            #reward_loss = 0.5 * tf.reduce_mean(tf.square(self.reward_target - pred_reward)) #mse
-            reward_loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=pred_reward, onehot_labels=self.reward_target))  # cross entropy over caterogical reward 
-            print('reward loss ', reward_loss)
-
-        self.loss = self.policy.loss + feat_loss + reward_loss 
         if pixel_control:
-            self.loss += pixel_loss
+            self.feat_map = torch.nn.Sequential(torch.nn.Linear(self.policy.dense_size, 32*8*8), torch.nn.ReLU()).to(device)
+            self.deconv1 = torch.nn.Sequential(torch.nn.ConvTranspose2d(32, 32, kernel_size=[3,3], stride=[1,1]), torch.nn.ReLU()).to(device)
+            self.deconv_advantage = torch.nn.ConvTranspose2d(32, action_size, kernel_size=[3,3], stride=[2,2]).to(device)
+            self.deconv_value = torch.nn.ConvTranspose2d(32, 1, kernel_size=[3,3], stride=[2,2]).to(device)
+                
+        # reward model
+        self.r1 = torch.nn.Sequential(torch.nn.Linear(self.policy.dense_size, 128), torch.nn.ReLU()).to(device)
+        self.r2 = torch.nn.Linear(128, 3).to(device)
 
-        #self.optimiser = tf.train.AdamOptimizer(lr)
-        self.optimiser = tf.train.RMSPropOptimizer(lr, decay=0.99, epsilon=1e-5)
-        
-        weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
-        grads = tf.gradients(self.loss, weights)
-        grads, _ = tf.clip_by_global_norm(grads, grad_clip)
-        grads_vars = list(zip(grads, weights))
-
-        self.train_op = self.optimiser.apply_gradients(grads_vars)
-    
-    def _build_pixel(self, input):
-        # ignoring cropping from paper hence deconvoluting to size 21x21 feature map (as 84x84 / 4 == 21x21)
-        feat_map = mlp_layer(input, 32*8*8, activation=tf.nn.relu, name='feat_map_flat')
-        feat_map = tf.reshape(feat_map, shape=[-1,8,8,32], name='feature_map')
-        batch_size = tf.shape(feat_map)[0]
-        deconv1 = conv_transpose_layer(feat_map, output_shape=[batch_size,10,10,32], kernel_size=[3,3], strides=[1,1], padding='VALID', activation=tf.nn.relu)
-        deconv_advantage = conv2d_transpose(deconv1, output_shape=[batch_size,21,21,self.action_size],
-                kernel_size=[3,3], strides=[2,2], padding='VALID', activation=None, name='deconv_adv')
-        deconv_value = conv2d_transpose(deconv1, output_shape=[batch_size,21,21,1],
-                kernel_size=[3,3], strides=[2,2], padding='VALID', activation=None, name='deconv_value')
-
-        # Auxillary Q value calculated via dueling network 
-        # Z. Wang, N. de Freitas, and M. Lanctot. Dueling Network Architectures for Deep ReinforcementLearning. https://arxiv.org/pdf/1511.06581.pdf
-        Qaux = tf.nn.relu(deconv_value + deconv_advantage - tf.reduce_mean(deconv_advantage, axis=3, keep_dims=True))
-        print('Qaux', Qaux.get_shape().as_list())
-        return Qaux
+        self.optimiser = optim(self.parameters(), lr, **optim_args)
+        self.scheduler = polynomial_sheduler(self.optimiser, lr_final, decay_steps, power=1)
 
     def forward(self, state):
         return self.policy.forward(state)
-    
-    def get_pixel_control(self, state):
-        feed_dict = {self.replay_policy.state:state}
-        return self.sess.run(self.Qaux, feed_dict=feed_dict)
-    
-    def intrinsic_reward(self, next_state, state_mean, state_std):
-        feed_dict={self.next_state:next_state, self.state_mean:state_mean, self.state_std:state_std}
-        intr_reward = self.sess.run(self.intr_reward, feed_dict=feed_dict)
-        return intr_reward
-   
-    def backprop(self, state, next_state, R_extr, R_intr, Adv, actions, old_policy, state_mean, state_std,
-        replay_states, replay_actions, replay_Rextr, Qaux_target, replay_dones, reward_states, sample_rewards):
-        
-        feed_dict = {self.policy.state:state, self.policy.actions:actions,
-                     self.next_state:next_state, self.state_mean:state_mean, self.state_std:state_std,
-                     self.policy.R_extr:R_extr, self.policy.R_intr:R_intr, self.policy.Advantage:Adv,
-                     self.policy.old_policy:old_policy,
-                     self.reward_target:sample_rewards, self.reward_state:reward_states,
-                     self.replay_policy.state:replay_states, self.replay_policy.R_extr:replay_Rextr}
 
+    def evaluate(self, state):
+        return self.policy.evaluate(state)
+
+    def Qaux(self, enc_state):
+        # Auxillary Q value calculated via dueling network 
+        # Z. Wang, N. de Freitas, and M. Lanctot. Dueling Network Architectures for Deep ReinforcementLearning. https://arxiv.org/pdf/1511.06581.pdf
+        batch_size = enc_state.shape[0]
+        feat_map = self.feat_map(enc_state).view([batch_size,32,8,8])
+        deconv1 = self.deconv1(feat_map)
+        deconv_adv = self.deconv_advantage(deconv1)
+        deconv_value = self.deconv_value(deconv1)
+        qaux = deconv_value + deconv_adv - torch.mean(deconv_adv, dim=1, keepdim=True)
+        return qaux
+
+    def get_pixel_control(self, state:np.ndarray):
+        with torch.no_grad():
+            enc_state = self.policy.model(totorch(state, self.device))
+            Qaux = self.Qaux(enc_state)
+        return tonumpy(Qaux)
+
+    def pixel_loss(self, Qaux, Qaux_actions, Qaux_target):
+        'Qaux_target temporal difference target for Q_aux'
+        one_hot_actions = F.one_hot(Qaux_actions.long(), self.action_size)
+        pixel_action = one_hot_actions.view([-1,self.action_size,1,1])
+        Q_aux_action = torch.sum(Qaux * pixel_action, dim=1)
+        pixel_loss = 0.5 * torch.mean(torch.square(Qaux_target - Q_aux_action)) # l2 loss for Q_aux over all pixels and batch
+        return pixel_loss
+
+    def reward_loss(self, reward_states, reward_target):
+        r1 = self.r1(self.policy.model(reward_states))
+        pred_reward = self.r2(r1)
+        reward_loss = torch.mean(F.cross_entropy(pred_reward, reward_target.long()))  # cross entropy over caterogical reward
+        return reward_loss
+    
+    def replay_loss(self, R, V):
+        return torch.mean(torch.square(R - V))
+        
+    def forward_loss(self, states, actions, Re, Ri, Adv, old_policy):
+        states, actions, Re, Ri, Adv, old_policy = totorch_many(states, actions, Re, Ri, Adv, old_policy, device=self.device)
+        actions_onehot = F.one_hot(actions.long(), self.action_size)
+        policy, Ve, Vi = self.forward(states)
+        forward_loss = self.policy.loss(policy, Re, Ri, Ve, Vi, Adv, actions_onehot, old_policy)
+        return forward_loss
+    
+    def auxiliary_loss(self, reward_states, rewards, Qaux_target, Qaux_actions, replay_states, replay_R):
+        reward_states, rewards, Qaux_target, Qaux_actions, replay_states, replay_R = totorch_many(reward_states, rewards, Qaux_target,
+                                                                                                    Qaux_actions, replay_states, replay_R, device=self.device)
+        
+        policy_enc = self.policy.model(replay_states)
+        replay_values = self.policy.Ve(policy_enc)
+        reward_loss = self.reward_loss(reward_states, rewards)
+        replay_loss = self.replay_loss(replay_R, replay_values)
+        aux_loss = self.RP * reward_loss + self.VR * replay_loss
+        
+        Qaux_actions = Qaux_actions.long()
+        
         if self.pixel_control:
-            feed_dict[self.Qaux_target] = Qaux_target
-            feed_dict[self.Qaux_actions] =  replay_actions
-
-        _, l = self.sess.run([self.train_op,self.loss], feed_dict=feed_dict)
-        return l
-    
-    def set_session(self, sess):
-        self.sess = sess
-        self.policy.set_session(sess)
-
-
-class RANDAL_Trainer(SyncMultiEnvTrainer):
-    def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', model_dir='models/', total_steps=1000000, nsteps=5, init_obs_steps=128*50, num_epochs=4, num_minibatches=4, validate_freq=1000000.0,
-                 save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True, gpu_growth=True):
+            Qaux = self.Qaux(policy_enc)
+            pixel_loss = self.pixel_loss(Qaux, Qaux_actions, Qaux_target)
+            aux_loss += self.PC * pixel_loss
         
-        super().__init__(envs, model, val_envs, train_mode=train_mode, log_dir=log_dir, model_dir=model_dir, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
-                            save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars,
-                            gpu_growth=gpu_growth)
+        return aux_loss
+    
+    def predictor_loss(self, next_states, state_mean, state_std):
+        'loss for predictor network'
+        next_states, state_mean, state_std = totorch_many(next_states, state_mean, state_std, device=self.device)
+        predictor_loss = self._intr_reward(next_states, state_mean, state_std).mean()
+        return predictor_loss
 
-        self.replay = deque([], maxlen=2000)
+    def _intr_reward(self, next_state, state_mean, state_std):
+        norm_next_state = torch.clip((next_state - state_mean) / state_std, -5, 5)
+        intr_reward = torch.square(self.predictor_model(norm_next_state) - self.target_model(norm_next_state).detach()).sum(dim=-1)
+        return intr_reward 
+    
+    def intrinsic_reward(self, next_state:np.ndarray, state_mean:np.ndarray, state_std):
+        next_state, state_mean, state_std = totorch_many(next_state, state_mean, state_std, device=self.device)
+        with torch.no_grad():
+            intr_reward = self._intr_reward(next_state, state_mean, state_std)
+        return tonumpy(intr_reward)
 
-        self.runner = self.Runner(self.model, self.env, self.nsteps, self.replay)
-        self.alpha = 1
+    def backprop(self, states, next_states, Re, Ri, Adv, actions, old_policy, reward_states, rewards, Qaux_target, Qaux_actions, replay_states, replay_R, state_mean, state_std):
+        forward_loss = self.forward_loss(states, actions, Re, Ri, Adv, old_policy)
+        aux_losses = self.auxiliary_loss(reward_states, rewards, Qaux_target, Qaux_actions, replay_states, replay_R)
+        predictor_loss = self.predictor_loss(next_states, state_mean, state_std)
+
+        loss = forward_loss + aux_losses + predictor_loss
+        loss.backward()
+        if self.grad_clip is not None:
+            torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_clip)
+        self.optimiser.step()
+        self.optimiser.zero_grad()
+        self.scheduler.step()
+        return loss.detach().cpu().numpy()
+
+
+
+
+
+
+
+class RANDALTrainer(SyncMultiEnvTrainer):
+    def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', model_dir='models/', total_steps=1000000, nsteps=5, gamma_extr=0.999, gamma_intr=0.99, lambda_=0.95, 
+                    init_obs_steps=600, num_epochs=4, num_minibatches=4, validate_freq=1000000.0, save_freq=0, render_freq=0, num_val_episodes=50, max_val_steps=10000, replay_length=2000, norm_pixel_reward=True, log_scalars=True):
+        
+        super().__init__(envs, model, val_envs, train_mode=train_mode, log_dir=log_dir, model_dir=model_dir, total_steps=total_steps, nsteps=nsteps, gamma=gamma_extr, lambda_=lambda_,
+                            validate_freq=validate_freq, save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, max_val_steps=max_val_steps, log_scalars=log_scalars)
+        
+        self.gamma_intr = gamma_intr
+        self.num_epochs = num_epochs
+        self.num_minibatches = num_minibatches
         self.pred_prob = 1 / (self.num_envs / 32.0)
-        self.lambda_ = 0.95
+        self.state_obs = RunningMeanStd()
+        self.forward_filter = RewardForwardFilter(gamma_intr)
+        self.intr_rolling = RunningMeanStd()
         self.init_obs_steps = init_obs_steps
-        self.state_min, self.state_max = 0, 0 
-        self.num_epochs, self.num_minibatches = num_epochs, num_minibatches
-        self.normalise_obs = True
-        hyper_paras = {'learning_rate':model.lr,
-         'grad_clip':model.grad_clip, 'nsteps':self.nsteps, 'num_workers':self.num_envs, 'total_steps':self.total_steps,
-          'entropy_coefficient':0.001, 'value_coefficient':0.5, 'intr_coeff':model.intr_coeff,
-        'extr_coeff':model.extr_coeff, 'init_obs_steps':init_obs_steps}
+        self.replay = deque([], maxlen=replay_length) # replay length per actor
+        self.normalise_obs = norm_pixel_reward
+        self.replay_length = replay_length
+
+        hyper_paras = {'learning_rate':model.lr, 'grad_clip':model.grad_clip, 'nsteps':self.nsteps, 'num_workers':self.num_envs, 'total_steps':self.total_steps,
+                        'entropy_coefficient':model.entropy_coeff, 'value_coefficient':1.0, 'intrinsic_value_coefficient':model.intr_coeff,
+                        'extrinsic_value_coefficient':model.extr_coeff, 'init_obs_steps':init_obs_steps, 'gamma_intrinsic':self.gamma_intr, 'gamma_extrinsic':self.gamma,
+                        'lambda':self.lambda_, 'predictor_dropout_probability':self.pred_prob, 'replay_length':replay_length, 'normalise_pixel_reward':norm_pixel_reward,
+                        'replay_value_coefficient':model.VR, 'pixel_control_coefficient':model.PC, 'reward_prediction_coefficient':model.RP
+                        }
         
         if log_scalars:
             filename = log_dir + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
-    
-    def validate(self,env,num_ep,max_steps,render=False):
-        episode_scores = []
-        for episode in range(num_ep):
-            state = env.reset()
-            episode_score = []
-            for t in range(max_steps):
-                policy, value_extr, value_intr = self.model.forward(state[np.newaxis])
-                #print('policy', policy, 'value_extr', value_extr)
-                action = np.random.choice(policy.shape[1], p=policy[0])
-                next_state, reward, done, info = env.step(action)
-                state = next_state
 
-                episode_score.append(reward)
-                
-                if render:
-                    with self.lock:
-                        env.render()
-
-                if done or t == max_steps -1:
-                    tot_reward = np.sum(episode_score)
-                    with self.lock:
-                        self.validate_rewards.append(tot_reward)
-                    
-                    break
-        if render:
-            with self.lock:
-                env.close()
-    
     def populate_memory(self):
-        for t in range(2000//self.nsteps):
-            states, *_ = self.runner.run()
+        for t in range(self.replay_length//self.nsteps):
+            states, *_ = self.rollout()
             #self.state_mean, self.state_std = self.obs_running.update(fold_batch(states)[...,-1:])
             self.update_minmax(states)
+
 
     def update_minmax(self, obs):
         minima = obs.min()
@@ -214,6 +216,9 @@ class RANDAL_Trainer(SyncMultiEnvTrainer):
             self.state_max = maxima
     
     def norm_obs(self, obs):
+        ''' normalise pixel intensity changes by recording min and max pixel observations
+            not using per pixel normalisation because expected image is singular greyscale frame
+        '''
         return (obs - self.state_min) * (1/(self.state_max - self.state_min))
     
     def auxiliary_target(self, pixel_rewards, last_values, dones):
@@ -229,51 +234,53 @@ class RANDAL_Trainer(SyncMultiEnvTrainer):
         return R
     
     def pixel_rewards(self, prev_state, states):
+        # states of rank [T, B, channels, 84, 84]
         T = len(states) # time length 
-        B = states.shape[1] #batch size
+        B = states.shape[1] # batch size
         pixel_rewards = np.zeros((T,B,21,21))
-        states = states[...,-1:]
-        prev_state = prev_state[...,-1:]
+        states = states[:,:,-1,:,:]
+        prev_state = prev_state[:,-1,:,:]
         if self.normalise_obs:
             states = self.norm_obs(states)
             #print('states, max', states.max(), 'min', states.min(), 'mean', states.mean())
             prev_state = self.norm_obs(prev_state)
             
-        pixel_rewards[0] = np.abs(states[0] - prev_state).reshape(-1,21,4,21,4).mean(axis=(2,4))
+        pixel_rewards[0] = np.abs(states[0] - prev_state).reshape(-1,4,4,21,21).mean(axis=(1,2))
         for i in range(1,T):
-            pixel_rewards[i] = np.abs(states[i] - states[i-1]).reshape(-1,21,4,21,4).mean(axis=(2,4))
-        #print('pixel reward',pixel_rewards.shape, 'max', pixel_rewards.max(), 'mean', pixel_rewards.mean())
+            pixel_rewards[i] = np.abs(states[i] - states[i-1]).reshape(-1,4,4,21,21).mean(axis=(1,2))
         return pixel_rewards
 
     def sample_replay(self):
-        sample_start = np.random.randint(1, len(self.replay) -self.nsteps -2)
+        workers = np.random.choice(self.num_envs, replace=False, size=2) # randomly sample from one of n workers
+        sample_start = np.random.randint(1, len(self.replay) - self.nsteps -2)
         replay_sample = []
         for i in range(sample_start, sample_start+self.nsteps):
             replay_sample.append(self.replay[i])
                 
-        replay_states = np.stack([replay_sample[i][0] for i in range(len(replay_sample))])
-        replay_actions = np.stack([replay_sample[i][1] for i in range(len(replay_sample))])
-        replay_rewards = np.stack([replay_sample[i][2] for i in range(len(replay_sample))])
-        replay_extr_values = np.stack([replay_sample[i][3] for i in range(len(replay_sample))]) 
-        replay_dones = np.stack([replay_sample[i][4] for i in range(len(replay_sample))])
-        #print('replay_hiddens dones shape', replay_dones.shape)
+        replay_states = np.stack([replay_sample[i][0][workers] for i in range(len(replay_sample))])
+        replay_actions = np.stack([replay_sample[i][1][workers] for i in range(len(replay_sample))])
+        replay_rewards = np.stack([replay_sample[i][2][workers] for i in range(len(replay_sample))])
+        replay_values = np.stack([replay_sample[i][3][workers] for i in range(len(replay_sample))])
+        replay_dones = np.stack([replay_sample[i][4][workers] for i in range(len(replay_sample))])
+        #print('replay dones shape', replay_dones.shape)
+        #print('replay_values shape', replay_values.shape)
         
-        next_state = self.replay[sample_start+self.nsteps][0] # get state 
-        _, replay_extr_last_values, replay_intr_last_values = self.model.forward(next_state)
-        replay_R = self.GAE(replay_rewards, replay_extr_values, replay_extr_last_values, replay_dones, gamma=0.99, lambda_=0.95) + replay_extr_values
+        next_state = self.replay[sample_start+self.nsteps][0][workers] # get state 
+        _, replay_last_values_extr, replay_last_values_intr = self.model.evaluate(next_state)
+        replay_R = self.GAE(replay_rewards, replay_values, replay_last_values_extr, replay_dones, gamma=0.99, lambda_=0.95) + replay_values
 
         if self.model.pixel_control:
-            prev_states = self.replay[sample_start-1][0]
+            prev_states = self.replay[sample_start-1][0][workers]
             Qaux_value = self.model.get_pixel_control(next_state)
             pixel_rewards = self.pixel_rewards(prev_states, replay_states)
-            
-            Qaux_target = self.auxiliary_target(pixel_rewards, np.max(Qaux_value, axis=-1), replay_dones)
+            Qaux_target = self.auxiliary_target(pixel_rewards, np.max(Qaux_value, axis=1), replay_dones)
         else:
-            Qaux_target = np.zeros((len(replay_states),2,3,4)) # produce fake Qaux to save writing unecessary code
+            Qaux_target = np.zeros((len(replay_states),1,1,1)) # produce fake Qaux to save writing unecessary code
         
         return replay_states, replay_actions, replay_R, Qaux_target, replay_dones
     
     def sample_reward(self):
+        # worker = np.random.randint(0,self.num_envs) # randomly sample from one of n workers
         replay_rewards = np.array([self.replay[i][2] for i in range(len(self.replay))])
         worker = np.argmax(np.sum(replay_rewards, axis=0)) # sample experience from best worker
         nonzero_idxs = np.where(np.abs(replay_rewards) > 0)[0] # idxs where |reward| > 0 
@@ -283,215 +290,218 @@ class RANDAL_Trainer(SyncMultiEnvTrainer):
         if len(nonzero_idxs) ==0 or len(zero_idxs) == 0: # if nonzero or zero idxs do not exist i.e. all rewards same sign 
             idx = np.random.randint(len(replay_rewards))
         elif np.random.uniform() > 0.5: # sample from zero and nonzero rewards equally
+            #print('nonzero')
             idx = np.random.choice(nonzero_idxs)
         else:
             idx = np.random.choice(zero_idxs)
         
         
         reward_states = self.replay[idx][0][worker]
-        sign = int(np.sign(self.replay[idx][2][worker]))
-        reward = np.zeros((1,3))
-        reward[0,sign] = 1 # catergorical [zero, positive, negative]
+        reward = np.array([sign(replay_rewards[idx,worker])]) # source of error
     
-        return reward_states[np.newaxis], reward
+        return reward_states[None], reward
+
     
     def init_state_obs(self, num_steps):
         states = 0
-        for i in range(1, num_steps+1):
+        for i in range(num_steps):
             rand_actions = np.random.randint(0, self.model.action_size, size=self.num_envs)
             next_states, rewards, dones, infos = self.env.step(rand_actions)
+            next_states = next_states[:, -1] if len(next_states.shape) == 4 else next_states # [num_envs, channels, height, width] for convolutions, assume frame stack
             states += next_states
-        mean = states / num_steps
-        self.runner.state_mean, self.runner.state_std = self.state_rolling.update(mean.mean(axis=0)[None,None])
-
+        return states / num_steps
+    
     
     def _train_nstep(self):
+        # stats for normalising states
+        self.state_mean, self.state_std = self.state_obs.update(self.init_state_obs(self.init_obs_steps))
+        self.state_min, self.state_max = 0.0, 0.0 
+        self.populate_memory() # populate experience replay with random actions 
+        self.states = self.env.reset() # reset to state s_0
+
         batch_size = self.num_envs * self.nsteps
         num_updates = self.total_steps // batch_size
         s = 0
-        rolling = RunningMeanStd(shape=())
-        obs = self.runner.states[0]
-        obs = obs[...,-1:] if len(obs.shape) == 3 else obs
-        self.state_rolling = rolling_obs(shape=obs.shape)
-        self.init_state_obs(self.init_obs_steps)
-        self.populate_memory()
-        self.runner.states = self.env.reset()
-        forward_filter = RewardForwardFilter(0.99)
-
-        # main loop
+        mini_batch_size = self.nsteps//self.num_minibatches
         start = time.time()
-        for t in range(self.t,num_updates+1):
-            states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, old_policies, dones = self.runner.run()
-            policy, extr_last_values, intr_last_values = self.model.forward(next_states[-1])
+        # main loop
+        for t in range(1,num_updates+1):
+            states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, last_values_extr, last_values_intr, old_policies, dones = self.rollout()
+            # update state normalisation statistics
+            self.update_minmax(states)
+            self.state_mean, self.state_std = self.state_obs.update(next_states) 
+            mean, std = self.state_mean, self.state_std
 
-            self.runner.state_mean, self.runner.state_std = self.state_rolling.update(next_states) # update state normalisation statistics 
+            replay_states, replay_actions, replay_Re, Qaux_target, replay_dones = self.sample_replay() # sample experience replay 
 
-            int_rff = np.array([forward_filter.update(intr_rewards[i]) for i in range(len(intr_rewards))])
-            R_intr_mean, R_intr_std = rolling.update(int_rff.ravel()) 
-            intr_rewards /= R_intr_std # normalise intr reward
-
-            reward_states, sample_rewards = self.sample_reward()
-            replay_states, replay_actions, replay_Rextr, Qaux_target, replay_dones = self.sample_replay()
-
-            Adv_extr = self.GAE(extr_rewards, values_extr, extr_last_values, dones, gamma=0.999, lambda_=self.lambda_)
-            Adv_intr = self.GAE(intr_rewards, values_intr, intr_last_values, np.zeros_like(dones), gamma=0.99, lambda_=self.lambda_) # non episodic intr reward signal 
-            R_extr = Adv_extr + values_extr
-            R_intr = Adv_intr + values_intr
-            total_Adv = self.model.extr_coeff * Adv_extr + self.model.intr_coeff * Adv_intr
-
-            # perform minibatch gradient descent for K epochs 
+            int_rff = np.array([self.forward_filter.update(intr_rewards[i]) for i in range(len(intr_rewards))]) 
+            R_intr_mean, R_intr_std = self.intr_rolling.update(int_rff.ravel()) # normalise intrinsic rewards
+            intr_rewards /= R_intr_std
+            
+            
+            Adv_extr = self.GAE(extr_rewards, values_extr, last_values_extr, dones, gamma=self.gamma, lambda_=self.lambda_)
+            Adv_intr = self.GAE(intr_rewards, values_intr, last_values_intr, dones, gamma=self.gamma_intr, lambda_=self.lambda_)
+            Re = Adv_extr + values_extr
+            Ri = Adv_intr + values_intr
+            total_Adv = Adv_extr + Adv_intr
             l = 0
+            
+            # perform minibatch gradient descent for K epochs 
             idxs = np.arange(len(states))
             for epoch in range(self.num_epochs):
-                mini_batch_size = self.nsteps//self.num_minibatches
+                reward_states, sample_rewards = self.sample_reward() # sample reward from replay memory
                 np.random.shuffle(idxs)
-                for batch in range(0,len(states), mini_batch_size):
-                    batch_idxs = idxs[batch:batch + mini_batch_size]
-                    # stack all states, next_states, actions and Rs across all workers into a single batch
-                    mb_states, mb_nextstates, mb_actions, mb_Rextr, mb_Rintr, mb_Adv, mb_old_policies = fold_batch(states[batch_idxs]), fold_batch(next_states[batch_idxs]), \
-                                                    fold_batch(actions[batch_idxs]), fold_batch(R_extr[batch_idxs]), fold_batch(R_intr[batch_idxs]), \
-                                                    fold_batch(total_Adv[batch_idxs]), fold_batch(old_policies[batch_idxs])
+                for batch in range(0, len(states), mini_batch_size):
+                    batch_idxs = idxs[batch: batch + mini_batch_size]
+                    # stack all states, actions and Rs across all workers into a single batch
+                    mb_states, mb_nextstates, mb_actions, mb_Re, mb_Ri, mb_Adv, mb_old_policies = fold_many(states[batch_idxs], next_states[batch_idxs], \
+                                                                                                                 actions[batch_idxs], Re[batch_idxs], Ri[batch_idxs], \
+                                                                                                                 total_Adv[batch_idxs], old_policies[batch_idxs])
                     
-                    mb_replay_states, mb_replay_actions, mb_replay_Rextr, mb_Qaux_target, mb_replay_dones = fold_batch(replay_states[batch_idxs]), fold_batch(replay_actions[batch_idxs]), \
-                                                                                           fold_batch(replay_Rextr[batch_idxs]), fold_batch(Qaux_target[batch_idxs]), fold_batch(replay_dones[batch_idxs])
-                
+                    mb_replay_states, mb_replay_actions, mb_replay_Rextr, mb_Qaux_target = fold_many(replay_states[batch_idxs], replay_actions[batch_idxs], \
+                                                                                                                        replay_Re[batch_idxs], Qaux_target[batch_idxs])
+                    
                     mb_nextstates = mb_nextstates[np.where(np.random.uniform(size=(mini_batch_size)) < self.pred_prob)]
-                    mb_nextstates = mb_nextstates[...,-1:] if len(mb_nextstates.shape) == 4 else mb_nextstates
-                    
-                    mean, std = self.runner.state_mean, self.runner.state_std
-                    l += self.model.backprop(mb_states, mb_nextstates, mb_Rextr, mb_Rintr, mb_Adv, mb_actions, mb_old_policies, mean, std,
-                                            mb_replay_states, mb_replay_actions, mb_replay_Rextr, mb_Qaux_target, mb_replay_dones, reward_states, sample_rewards)
+                    # states, next_states, Re, Ri, Adv, actions, old_policy, reward_states, rewards, Qaux_target, Qaux_actions, replay_states, replay_R, state_mean, state_std
+                    l += self.model.backprop(mb_states.copy(), mb_nextstates.copy(), mb_Re.copy(), mb_Ri.copy(), mb_Adv.copy(), mb_actions.copy(), mb_old_policies.copy(),
+                                                reward_states.copy(), sample_rewards.copy(), mb_Qaux_target.copy(), mb_replay_actions.copy(), mb_replay_states.copy(), mb_replay_Rextr.copy(),
+                                                mean.copy(), std.copy())
             
-            l /= (self.num_epochs * self.num_minibatches)
-        
-            if self.render_freq > 0 and t % (self.validate_freq // batch_size * self.render_freq) == 0:
+            
+            l /= self.num_epochs
+           
+                    
+            if self.render_freq > 0 and t % ((self.validate_freq  // batch_size) * self.render_freq) == 0:
                 render = True
             else:
                 render = False
-     
+        
             if self.validate_freq > 0 and t % (self.validate_freq // batch_size) == 0:
                 self.validation_summary(t,l,start,render)
                 start = time.time()
             
             if self.save_freq > 0 and  t % (self.save_freq // batch_size) == 0:
                 s += 1
-                self.saver.save(self.sess, str(self.model_dir + '/' + str(s) + ".ckpt") )
+                self.save(s)
                 print('saved model')
             
     
-    def get_action(self, state):
-        policy, value = self.model.forward(state)
-        action = int(np.random.choice(policy.shape[1], p=policy[0]))
-        return action
+    def get_action(self, states):
+        policies, values_extr, values_intr = self.model.evaluate(states)
+        actions = fastsample(policies)
+        return actions
 
-    class Runner(SyncMultiEnvTrainer.Runner):
-        def __init__(self, model, env, num_steps, replay):
-            super().__init__(model, env, num_steps)
-            self.replay = replay
-            self.state_mean = None
-            self.state_std = None
-        
-        def run(self,):
-            rollout = []
-            for t in range(self.num_steps):
-                policies, values_extr, values_intr = self.model.forward(self.states)
-                actions = [np.random.choice(policies.shape[1], p=policies[i]) for i in range(policies.shape[0])]
-                next_states, extr_rewards, dones, infos = self.env.step(actions)
-    
-                next_states__ = next_states[...,-1:] if len(next_states.shape) == 4 else next_states
-                intr_rewards = self.model.intrinsic_reward(next_states__, self.state_mean, self.state_std)
-                #print('intr rewards', intr_rewards)
-                rollout.append((self.states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, policies, dones))
-                self.replay.append((self.states, actions, extr_rewards, values_extr, dones)) # add to replay memory
-                self.states = next_states
+    def rollout(self):
+        rollout = []
+        for t in range(self.nsteps):
+            policies, values_extr, values_intr = self.model.evaluate(self.states)
+            actions = fastsample(policies)
+            next_states, extr_rewards, dones, infos = self.env.step(actions)
+            
+            next_states__ = next_states[:, -1:] if len(next_states.shape) == 4 else next_states # [num_envs, channels, height, width] for convolutions 
+            intr_rewards = self.model.intrinsic_reward(next_states__, self.state_mean, self.state_std)
+            
+            rollout.append((self.states, next_states__, actions, extr_rewards, intr_rewards, values_extr, values_intr, policies, dones))
+            self.replay.append((self.states, actions, extr_rewards, values_extr, dones)) # add to replay memory
+            self.states = next_states
 
-            states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, policies, dones = stack_many(zip(*rollout))
-            return states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, policies, dones
-    
-    
+        states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, policies, dones = stack_many(*zip(*rollout))
+        last_policy, last_values_extr, last_values_intr, = self.model.evaluate(self.states)
+        return states, next_states, actions, extr_rewards, intr_rewards, values_extr, values_intr, last_values_extr, last_values_intr, policies, dones
 
 
-def main(env_id, Atari=True):
-    tf.reset_default_graph()
-
+def main(env_id):
     num_envs = 32
     nsteps = 128
 
-    env = gym.make(env_id)
-    
     classic_list = ['MountainCar-v0', 'Acrobot-v1', 'LunarLander-v2', 'CartPole-v0', 'CartPole-v1']
     if any(env_id in s for s in classic_list):
         print('Classic Control')
-        val_envs = [gym.make(env_id) for i in range(1)]
+        val_envs = [gym.make(env_id) for i in range(10)]
         envs = BatchEnv(DummyEnv, env_id, num_envs, blocking=False)
+    
+    elif 'ApplePicker' in env_id:
+        print('ApplePicker')
+        make_args = {'num_objects':300, 'default_reward':0}
+        if 'Deterministic' in env_id:
+            envs = DummyBatchEnv(apple_pickgame, env_id, num_envs, max_steps=5000, auto_reset=True, k=4, grey_scale=True, make_args=make_args)
+            val_envs = DummyBatchEnv(apple_pickgame, env_id, num_envs, max_steps=5000, auto_reset=False, k=4, grey_scale=True, make_args=make_args)
+            for i in range(len(envs)):
+                val_envs.envs[i].set_locs(envs.envs[i].item_locs_master, envs.envs[i].start_loc)
+            val_envs.reset()
+        else:
+        #val_envs = [apple_pickgame(gym.make(env_id), max_steps=5000, auto_reset=False, k=1) for i in range(16)]
+            val_envs = DummyBatchEnv(apple_pickgame, env_id, num_envs, max_steps=5000, auto_reset=False, k=4, grey_scale=True)
+            envs = DummyBatchEnv(apple_pickgame, env_id, num_envs, max_steps=5000, auto_reset=True, k=4, grey_scale=True)
+        print(val_envs.envs[0])
+        print(envs.envs[0])
 
     else:
         print('Atari')
+        env = gym.make(env_id)
         if env.unwrapped.get_action_meanings()[1] == 'FIRE':
             reset = True
             print('fire on reset')
         else:
             reset = False
             print('only stack frames')
-        
-        val_envs = [AtariEnv(gym.make(env_id), k=4, rescale=84, episodic=False, reset=reset, clip_reward=False) for i in range(16)]
-        envs = BatchEnv(AtariEnv, env_id, num_envs, blocking=False, rescale=84, k=4, reset=reset, episodic=False, clip_reward=True, time_limit=4500)
+        env.close()
+        val_envs = BatchEnv(AtariEnv, env_id, num_envs=16, k=4, blocking=False, episodic=False, reset=reset, clip_reward=False, auto_reset=True)
+        envs = BatchEnv(AtariEnv, env_id, num_envs, blocking=False, k=4, reset=reset, episodic=False, clip_reward=True)
         
     
-    env.close()
-    action_size = val_envs[0].action_space.n
-    input_size = val_envs[0].reset().shape
+    action_size = val_envs.envs[0].action_space.n
+    input_size = val_envs.envs[0].reset().shape
+
+    print('action_size', action_size)
+    print('input_size', input_size)
     
-    #time.sleep(np.random.uniform(1,30)) # stop processes sharing same log dir
     
     current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
-    train_log_dir = 'logs/RANDAL/' + env_id + '/' + current_time
+    train_log_dir = 'logs/RANDAL/' + env_id + '/Adam/' + current_time
     model_dir = "models/RANDAL/" + env_id + '/' + current_time
     
-
-    #with tf.device('GPU:3'):
-    model = RANDAL(nature_cnn,
-                predictor_cnn,
-                input_shape = input_size,
-                action_size = action_size,
+    
+    model = RANDAL(NatureCNN,
+                PredictorCNN,
+                input_size=input_size,
+                action_size=action_size,
+                lr=1e-4,
+                lr_final=1e-5,
+                decay_steps=200e6//(num_envs*nsteps),
+                grad_clip=0.5,
                 intr_coeff=1.0,
                 extr_coeff=2.0,
-                value_coeff=0.5,
-                pixel_control=True,
-                lr=1e-3,
-                grad_clip=0.5,
-                policy_args={},
-                RND_args={}) #
+                entropy_coeff=0.001,
+                optim=torch.optim.Adam,
+                optim_args={},
+                device='cuda'
+                )
 
     
+    randal = RANDALTrainer(envs=envs,
+                        model=model,
+                        model_dir=model_dir,
+                        log_dir=train_log_dir,
+                        val_envs=val_envs,
+                        train_mode='nstep',
+                        total_steps=200e6,
+                        nsteps=nsteps,
+                        init_obs_steps=128*50,
+                        num_epochs=4,
+                        num_minibatches=4,
+                        validate_freq=1e5,
+                        save_freq=0,
+                        render_freq=0,
+                        num_val_episodes=32,
+                        log_scalars=False)
 
-    curiosity = RANDAL_Trainer(envs = envs,
-                            model = model,
-                            model_dir = model_dir,
-                            log_dir = train_log_dir,
-                            val_envs = val_envs,
-                            train_mode = 'nstep',
-                            total_steps = 50e6,
-                            nsteps = nsteps,
-                            init_obs_steps=128*50,
-                            num_epochs=4,
-                            num_minibatches=4,
-                            validate_freq = 1e6,
-                            save_freq = 0,
-                            render_freq = 0,
-                            num_val_episodes = 50,
-                            log_scalars=True,
-                            gpu_growth=True)
-    curiosity.train()
-    
-    del curiosity
 
-    
+    randal.train()
 
 
 if __name__ == "__main__":
-    env_id_list = ['FreewayDeterministic-v4', 'SpaceInvadersDeterministic-v4', 'MontezumaRevengeDeterministic-v4',]
-    #env_id_list = ['MountainCar-v0', 'Acrobot-v1', 'CartPole-v1' ]
+    env_id_list = ['MontezumaRevengeDeterministic-v4', 'SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4']
+    #env_id_list = ['MountainCar-v0', 'CartPole-v1' , 'Acrobot-v1', ]
     for env_id in env_id_list:
         main(env_id)
-    

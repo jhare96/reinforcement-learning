@@ -1,26 +1,32 @@
 import time, datetime, os
 import threading
 import numpy as np
+import torch
 import copy
 import json
+from typing import Union
 from abc import ABC, abstractmethod
 from rlib.utils.utils import fold_batch
+from rlib.utils.VecEnv import BatchEnv, DummyBatchEnv
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
 
 
 class SyncMultiEnvTrainer(object):
-    def __init__(self, envs, model, val_envs, train_mode='nstep', return_type='nstep', log_dir='logs/', model_dir='models/', total_steps=50e6, nsteps=5, gamma=0.99, lambda_=0.95, 
+    def __init__(self, envs: Union[BatchEnv, DummyBatchEnv], model:torch.nn.Module, val_envs: Union[list, BatchEnv, DummyBatchEnv], train_mode='nstep', return_type='nstep', log_dir='logs/', model_dir='models/', total_steps=50e6, nsteps=5, gamma=0.99, lambda_=0.95, 
                      validate_freq=1e6, save_freq=0, render_freq=0, update_target_freq=0, num_val_episodes=50, max_val_steps=10000, log_scalars=True):
         '''
             A synchronous multiple env training framework for pytorch
 
             Args:
-                envs - BatchEnv method which runs multiple environements synchronously 
+                envs - BatchEnv | DummyBatchEnv: multiple synchronous training environments 
                 model - reinforcement learning model
                 log_dir, log directory string for location of directory to log scalars log_dir='logs/', model_dir='models/',
-                val_envs - a list of envs for validation 
+                val_envs - use your own discretion to choose which validation mode you wan't, recommended BatchEnv or list for Atari and DummyBatchEnv for Classic Control like envs
+                    list: a list of envs for validation, uses threading to run environments asychronously
+                    BatchEnv: uses multiprocessing to run validation envs sychronously in parallel
+                    DummyBatchEnv: allows for sychronous env stepping without the overhead of multiprocessing, good for computationally cheap environments
                 train_mode - 'nstep' or 'onestep' species whether training is done using multiple step TD learning or single step
                 return_type - string to determine whether 'nstep', 'lambda' or 'GAE' returns are to be used
                 total_steps - number of Total training steps across all environements
@@ -30,9 +36,14 @@ class SyncMultiEnvTrainer(object):
                 render_freq - multiple of validate_freq before rendering (i.e. render every X validations), 0 for no rendering
                 update_target_freq - number of steps across all environements before updating target model, 0 for no updating
                 num_val_episodes - number of episodes to average over when validating
+                max_val_steps - maximum number of steps for each validation episode (prevents infinite loops)
                 log_scalars - boolean flag whether to log tensorboard scalars to log_dir
         '''
         self.env = envs
+        if isinstance(envs, list):
+            self.validate_func = self.validate_async
+        else:
+            self.validate_func = self.validate_sync
         if train_mode not in ['nstep', 'onestep']:
             raise ValueError('train_mode %s is not a valid argument. Valid arguments are ... %s, %s' %(train_mode,'nstep','onestep'))
         assert num_val_episodes >= len(val_envs), 'number of validation epsiodes {} must be greater than or equal to the number of validation envs {}'.format(num_val_episodes, len(val_envs))
@@ -174,42 +185,22 @@ class SyncMultiEnvTrainer(object):
         
         return Adv
     
-    def validation_summary(self,t,loss,start,render):
+    def validation_summary(self, t, loss, start, render):
         batch_size = self.num_envs * self.nsteps
         tot_steps = t * batch_size
         time_taken = time.time() - start
         frames_per_update = (self.validate_freq // batch_size) * batch_size
         fps = frames_per_update / time_taken 
-        num_val_envs = len(self.val_envs)
-        num_val_eps = [self.num_val_episodes//num_val_envs for i in range(num_val_envs)]
-        num_val_eps[-1] = num_val_eps[-1] + self.num_val_episodes % self.num_val_episodes//(num_val_envs)
-        render_array = np.zeros((len(self.val_envs)))
-        render_array[0] = render
-        threads = [threading.Thread(daemon=True,target=self.validate, args=(self.val_envs[i], num_val_eps[i], self.val_steps, render_array[i])) for i in range(num_val_envs)]
         
-        try:
-            for thread in threads:
-                thread.start()
-            
-            for thread in threads:
-                thread.join()
-    
-        except KeyboardInterrupt:
-            for thread in threads:
-                thread.join()
-
-        #[self.validate(self.val_envs[0], num_val_eps[i], self.val_steps, render_array[i]) for i in range(num_val_envs)]
-    
-            
-        score = np.mean(self.validate_rewards)
-        self.validate_rewards = []
+        score = self.validate_func(render)
         print("update %i, validation score %f, total steps %i, loss %f, time taken for %i frames:%fs, fps %f \t\t\t" %(t,score,tot_steps,loss,frames_per_update,time_taken,fps))
         
         if self.log_scalars:
             self.train_writer.add_scalar('validation/score', score, tot_steps)
             self.train_writer.add_scalar('train/loss', loss, tot_steps)
     
-    def save_model(self,s):
+    
+    def save_model(self, s):
         model_loc = f'{self.model_dir}/{s}.pt'
         # default saving method is to save session
         torch.save(self.model.state_dict(), model_loc)
@@ -285,7 +276,32 @@ class SyncMultiEnvTrainer(object):
             handle.write("{} = {}\n" .format(key, value))
         handle.close()
 
-    def validate(self,env,num_ep,max_steps,render=False):
+    def validate_async(self, render=False):
+        num_val_envs = len(self.val_envs)
+        num_val_eps = [self.num_val_episodes//num_val_envs for i in range(num_val_envs)]
+        num_val_eps[-1] = num_val_eps[-1] + self.num_val_episodes % self.num_val_episodes//(num_val_envs)
+        render_array = np.zeros((len(self.val_envs)))
+        render_array[0] = render
+        threads = [threading.Thread(daemon=True, target=self._validate_async, args=(self.val_envs[i], num_val_eps[i], self.val_steps, render_array[i])) for i in range(num_val_envs)]
+        
+        try:
+            for thread in threads:
+                thread.start()
+            
+            for thread in threads:
+                thread.join()
+    
+        except KeyboardInterrupt:
+            for thread in threads:
+                thread.join()
+    
+            
+        score = np.mean(self.validate_rewards)
+        self.validate_rewards = []
+        return score
+    
+    def _validate_async(self, env, num_ep, max_steps, render=False):
+        'single env validation'
         for episode in range(num_ep):
             state = env.reset()
             episode_score = []
@@ -311,10 +327,36 @@ class SyncMultiEnvTrainer(object):
             with self.lock:
                 env.close()
     
-    def get_action(self, state): #include small fn in order to reuse validate 
-        raise NotImplementedError('get_action method is required, check that this is implemented properly')
+    def validate_sync(self, render=False):
+        'batch env validation'
+        episode_scores = []
+        env = self.val_envs
+        for episode in range(self.num_val_episodes//len(env)):
+            states = env.reset()
+            episode_score = []
+            for t in range(self.val_steps):
+                actions = self.get_action(states)
+                next_states, rewards, dones, infos = env.step(actions)
+                states = next_states
+                #print('state', state, 'action', action, 'reward', reward)
+
+                episode_score.append(rewards*(1-dones))
+                
+                if render:
+                    with self.lock:
+                        env.render()
+
+                if dones.sum() == self.num_envs or t == self.val_steps -1:
+                    tot_reward = np.sum(np.stack(episode_score), axis=0)
+                    episode_scores.append(tot_reward)
+                    break
+        
+        return np.mean(episode_scores)
     
-    def fold_batch(self,x):
+    def get_action(self, state): # include small fn in order to reuse validate 
+        raise NotImplementedError('get_action method is required when using the default validation functions, check that this is implemented properly')
+    
+    def fold_batch(self, x):
         rows, cols = x.shape[0], x.shape[1]
         y = x.reshape(rows*cols,*x.shape[2:])
         return y

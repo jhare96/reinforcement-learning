@@ -12,14 +12,14 @@ from rlib.A2C.ActorCritic import ActorCritic
 
 class A2C(SyncMultiEnvTrainer):
     def __init__(self, envs, model, val_envs, train_mode='nstep', return_type='nstep', log_dir='logs/A2C', model_dir='models/A2C', total_steps=10000, nsteps=5, gamma=0.99, lambda_=0.95,
-                 validate_freq=1e6, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True):
+                 validate_freq=1e6, save_freq=0, render_freq=0, num_val_episodes=50, max_val_steps=10000, log_scalars=True):
         
         super().__init__(envs, model, val_envs, log_dir=log_dir, model_dir=model_dir, train_mode=train_mode, return_type=return_type, total_steps=total_steps, nsteps=nsteps,
          gamma=gamma, lambda_=lambda_, validate_freq=validate_freq, save_freq=save_freq, render_freq=render_freq,
-         num_val_episodes=num_val_episodes, log_scalars=log_scalars)
+         num_val_episodes=num_val_episodes, max_val_steps=max_val_steps, log_scalars=log_scalars)
 
         hyperparas = {'learning_rate':model.lr, 'learning_rate_final':model.lr_final, 'lr_decay_steps':model.decay_steps , 'grad_clip':model.grad_clip, 'nsteps':nsteps, 'num_workers':self.num_envs,
-                  'total_steps':total_steps, 'entropy_coefficient':model.entropy_coeff, 'value_coefficient':model.value_coeff , 'return type':self.return_type}
+                  'total_steps':total_steps, 'entropy_coefficient':model.entropy_coeff, 'value_coefficient':model.value_coeff , 'return type':self.return_type, 'gamma':self.gamma, 'lambda':self.lambda_}
         
         if log_scalars:
             filename = log_dir + '/' + 'hyperparameters.txt'

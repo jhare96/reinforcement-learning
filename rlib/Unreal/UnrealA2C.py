@@ -262,10 +262,10 @@ class UnrealA2C(torch.nn.Module):
         return self.policy.mask_hidden(hidden, dones)
 
 
-class Unreal_Trainer(SyncMultiEnvTrainer):
-    def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', model_dir='models/', total_steps=1000000, nsteps=5, validate_freq=1000000, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True):
+class UnrealTrainer(SyncMultiEnvTrainer):
+    def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', model_dir='models/', total_steps=1000000, nsteps=5, validate_freq=1000000, save_freq=0, render_freq=0, num_val_episodes=50, max_val_steps=10000, log_scalars=True):
         super().__init__(envs, model, val_envs, train_mode=train_mode, log_dir=log_dir, model_dir=model_dir, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
-                            save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars)
+                            save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, max_val_steps=max_val_steps, log_scalars=log_scalars)
         
         self.replay = deque([], maxlen=2000)
         self.action_size = self.model.action_size
@@ -274,7 +274,7 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
         self.prev_actions_rewards = concat_action_reward(zeros, zeros, self.action_size+1) # start with action 0 and reward 0
 
         hyper_paras = {'learning_rate':model.lr, 'learning_rate_final':model.lr_final, 'lr_decay_steps':model.decay_steps , 'grad_clip':model.grad_clip, 'nsteps':nsteps, 'num_workers':self.num_envs,
-                  'total_steps':self.total_steps, 'entropy_coefficient':model.entropy_coeff, 'value_coefficient':0.5}
+                  'total_steps':self.total_steps, 'entropy_coefficient':model.entropy_coeff, 'value_coefficient':0.5, 'gamma':self.gamma, 'lambda':self.lambda_}
         
         if log_scalars:
             filename = log_dir + '/hyperparameters.txt'
@@ -390,13 +390,6 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
                 print('saved model')
 
 
-    class Runner(SyncMultiEnvTrainer.Runner):
-        def __init__(self, model, env, num_steps, replay):
-            super().__init__(model, env, num_steps)
-            self.replay = replay
-            self.action_size = self.model.action_size
-            
-
     def rollout(self,):
         rollout = []
         first_hidden = self.prev_hidden
@@ -422,7 +415,7 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
         #action = np.argmax(policy)
         return action
 
-    def validate(self,env,num_ep,max_steps,render=False):
+    def _validate_async(self, env, num_ep, max_steps, render=False):
         for episode in range(num_ep):
             state = env.reset()
             episode_score = []
@@ -449,7 +442,36 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
                     break
         if render:
             with self.lock:
-                env.close()  
+                env.close() 
+    
+    def validate_sync(self, render=False):
+        episode_scores = []
+        env = self.val_envs
+        for episode in range(self.num_val_episodes//self.num_envs):
+            states = env.reset()
+            episode_score = []
+            zeros = np.zeros((len(self.env)), dtype=np.int32)
+            prev_actrew = concat_action_reward(zeros, zeros, self.action_size+1) # start with action 0 and reward 0
+            prev_hidden = self.model.get_initial_hidden(len(self.val_envs))
+            for t in range(self.nsteps):
+                policies, values, hidden = self.model.evaluate(states[None], prev_actrew, prev_hidden)
+                actions = fastsample(policies)
+                next_states, rewards, dones, infos = env.step(actions)
+                states = next_states
+
+                episode_score.append(rewards*(1-dones))
+                
+                if render:
+                    with self.lock:
+                        env.render()
+
+                if dones.sum() == self.num_envs or t == self.val_steps -1:
+                    tot_reward = np.sum(np.stack(episode_score), axis=0)
+                    episode_scores.append(tot_reward)
+                    break
+        
+        return np.mean(episode_scores)
+
 
 def main(env_id):
     num_envs = 32
@@ -509,7 +531,7 @@ def main(env_id):
                       device='cuda')
     
 
-    auxiliary = Unreal_Trainer(envs=envs,
+    auxiliary = UnrealTrainer(envs=envs,
                                   model=model,
                                   model_dir=model_dir,
                                   log_dir=train_log_dir,

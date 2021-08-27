@@ -155,18 +155,19 @@ class UnrealA2C2(torch.nn.Module):
 
 
 
-class Unreal_Trainer(SyncMultiEnvTrainer):
+class UnrealTrainer(SyncMultiEnvTrainer):
     def __init__(self, envs, model,  val_envs, train_mode='nstep', log_dir='logs/UnrealA2C2', model_dir='models/UnrealA2C2', total_steps=1000000, nsteps=5,
-                normalise_obs=True, validate_freq=1000000, save_freq=0, render_freq=0, num_val_episodes=50, replay_length=2000, log_scalars=True):
+                normalise_obs=True, validate_freq=1000000, save_freq=0, render_freq=0, num_val_episodes=50, replay_length=2000, max_val_steps=10000, log_scalars=True):
         
         super().__init__(envs, model,  val_envs, train_mode=train_mode,  log_dir=log_dir, model_dir=model_dir, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
-                            save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars)
+                            save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, max_val_steps=max_val_steps, log_scalars=log_scalars)
         
         self.replay = deque([], maxlen=replay_length) #replay length per actor
         self.action_size = self.model.action_size
 
         hyper_paras = {'learning_rate':model.lr, 'grad_clip':model.grad_clip, 'nsteps':nsteps, 'num_workers':self.num_envs,
-                  'total_steps':self.total_steps, 'entropy_coefficient':model.entropy_coeff, 'value_coefficient':model.value_coeff}
+                  'total_steps':self.total_steps, 'entropy_coefficient':model.entropy_coeff, 'value_coefficient':model.value_coeff,
+                  'gamma':self.gamma, 'lambda':self.lambda_}
         
         if log_scalars:
             filename = log_dir + '/hyperparameters.txt'
@@ -196,6 +197,9 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
             self.state_max = maxima
     
     def norm_obs(self, obs):
+        ''' normalise pixel intensity changes by recording min and max pixel observations
+            not using per pixel normalisation because expected image is singular greyscale frame
+        '''
         return (obs - self.state_min) * (1/(self.state_max - self.state_min))
     
     def auxiliary_target(self, pixel_rewards, last_values, dones):
@@ -343,30 +347,6 @@ class Unreal_Trainer(SyncMultiEnvTrainer):
         action = int(np.random.choice(policy.shape[1], p=policy[0]))
         return action
 
-    def validate(self, env, num_ep, max_steps, render=False):
-        for episode in range(num_ep):
-            state = env.reset()
-            episode_score = []
-            for t in range(max_steps):
-                policy, value = self.model.evaluate(state[None])
-                action = np.random.choice(policy.shape[1], p=policy[0])
-                next_state, reward, done, info = env.step(action)
-                state = next_state
-                episode_score.append(reward)
-                
-                if render:
-                    with self.lock:
-                        env.render()
-
-                if done or t == max_steps -1:
-                    tot_reward = np.sum(episode_score)
-                    with self.lock:
-                        self.validate_rewards.append(tot_reward)
-                    
-                    break
-        if render:
-            with self.lock:
-                env.close()  
 
 def main(env_id):
     num_envs = 32
@@ -429,7 +409,7 @@ def main(env_id):
 
     
 
-    auxiliary = Unreal_Trainer(envs=envs,
+    auxiliary = UnrealTrainer(envs=envs,
                                 model=model,
                                 model_dir=model_dir,
                                 log_dir=train_log_dir,

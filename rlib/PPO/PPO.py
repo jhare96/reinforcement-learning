@@ -78,19 +78,19 @@ class PPO(torch.nn.Module):
         return loss.detach().cpu().numpy()
 
 
-class PPO_Trainer(SyncMultiEnvTrainer):
+class PPOTrainer(SyncMultiEnvTrainer):
     def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', model_dir='models/', total_steps=1000000, nsteps=5, gamma=0.99, lambda_=0.95, 
-                    num_epochs=4, num_minibatches=4, validate_freq=1000000.0, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True):
+                    num_epochs=4, num_minibatches=4, validate_freq=1000000.0, save_freq=0, render_freq=0, num_val_episodes=50, max_val_steps=10000, log_scalars=True):
         
         super().__init__(envs, model, val_envs, train_mode=train_mode, log_dir=log_dir, model_dir=model_dir, total_steps=total_steps, nsteps=nsteps, gamma=gamma, lambda_=lambda_,
-                            validate_freq=validate_freq, save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, log_scalars=log_scalars)
+                            validate_freq=validate_freq, save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, max_val_steps=max_val_steps, log_scalars=log_scalars)
 
         self.num_epochs = num_epochs
         self.num_minibatches = num_minibatches
 
         hyper_paras = {'learning_rate':model.lr, 'learning_rate_final':model.lr_final, 'lr_decay_steps':model.decay_steps,
             'grad_clip':model.grad_clip, 'nsteps':self.nsteps, 'num_workers':self.num_envs, 'total_steps':self.total_steps,
-            'entropy_coefficient':self.model.entropy_coeff, 'value_coefficient':self.model.value_coeff}
+            'entropy_coefficient':self.model.entropy_coeff, 'value_coefficient':self.model.value_coeff, 'gamma':self.gamma, 'lambda':self.lambda_}
         
         if log_scalars:
             filename = log_dir + '/hyperparameters.txt'
@@ -127,7 +127,7 @@ class PPO_Trainer(SyncMultiEnvTrainer):
                     l += self.model.backprop(mb_states.copy(), mb_R.copy(), mb_Adv.copy(), mb_actions.copy(), mb_old_policies.copy())
             
             #print('backprop time', time.time()-backprop_time)
-            l /= (self.num_epochs*self.num_minibatches)
+            l /= self.num_epochs
            
                     
             if self.render_freq > 0 and t % ((self.validate_freq  // batch_size) * self.render_freq) == 0:
@@ -164,50 +164,6 @@ class PPO_Trainer(SyncMultiEnvTrainer):
         states, actions, rewards, values, policies, dones = stack_many(*zip(*rollout))
         policy, last_values, = self.model.evaluate(next_states)
         return states, actions, rewards, values, last_values, policies, dones
-    
-
-    def validation_summary(self,t,loss,start,render):
-        batch_size = self.num_envs * self.nsteps
-        tot_steps = t * batch_size
-        time_taken = time.time() - start
-        frames_per_update = (self.validate_freq // batch_size) * batch_size
-        fps = frames_per_update / time_taken 
-        num_val_envs = len(self.val_envs)
-        num_val_eps = [self.num_val_episodes//num_val_envs for i in range(num_val_envs)]
-        num_val_eps[-1] = num_val_eps[-1] + self.num_val_episodes % self.num_val_episodes//(num_val_envs)
-        render_array = np.zeros((len(self.val_envs)))
-        render_array[0] = render
-        
-        score = np.mean(self.validate(self.val_envs, self.num_val_episodes, self.val_steps, render=False))
-        print("update %i, validation score %f, total steps %i, loss %f, time taken for %i frames:%fs, fps %f \t\t\t" %(t,score,tot_steps,loss,frames_per_update,time_taken,fps))
-        
-        if self.log_scalars:
-            self.train_writer.add_scalar('validation/score', score, tot_steps)
-            self.train_writer.add_scalar('train/loss', loss, tot_steps)
-    
-
-    def validate(self, env, num_ep, max_steps, render=False):
-        episode_scores = []
-        for episode in range(num_ep//len(env)):
-            states = env.reset()
-            episode_score = []
-            for t in range(max_steps):
-                action = self.get_action(states)
-                next_states, rewards, dones, infos = env.step(action)
-                states = next_states
-                #print('state', state, 'action', action, 'reward', reward)
-
-                episode_score.append(rewards*(1-dones))
-                
-                if render:
-                    with self.lock:
-                        env.render()
-
-                if dones.sum() == self.num_envs or t == max_steps -1:
-                    tot_reward = np.sum(np.stack(episode_score), axis=0)
-                    episode_scores.append(tot_reward)
-        
-        return episode_scores
 
 
 def main(env_id):
@@ -272,7 +228,7 @@ def main(env_id):
                 ).cuda()
 
     
-    curiosity = PPO_Trainer(envs=envs,
+    ppo = PPOTrainer(envs=envs,
                             model=model,
                             model_dir=model_dir,
                             log_dir=train_log_dir,
@@ -287,7 +243,7 @@ def main(env_id):
                             render_freq=0,
                             num_val_episodes=32,
                             log_scalars=False)
-    curiosity.train()
+    ppo.train()
     
 
 if __name__ == "__main__":

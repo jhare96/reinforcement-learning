@@ -128,9 +128,9 @@ class Curiosity(torch.nn.Module):
 
 
 class Curiosity_Trainer(SyncMultiEnvTrainer):
-    def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', total_steps=1000000, nsteps=5, validate_freq=1000000, save_freq=0, render_freq=0, num_val_episodes=50, log_scalars=True):
+    def __init__(self, envs, model, val_envs, train_mode='nstep', log_dir='logs/', total_steps=1000000, nsteps=5, validate_freq=1000000, save_freq=0, render_freq=0, num_val_episodes=50, max_val_steps=10000, log_scalars=True):
         super().__init__(envs, model, val_envs, train_mode=train_mode, return_type='nstep', log_dir=log_dir, total_steps=total_steps, nsteps=nsteps, validate_freq=validate_freq,
-                            save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes,log_scalars=log_scalars)
+                            save_freq=save_freq, render_freq=render_freq, update_target_freq=0, num_val_episodes=num_val_episodes, max_val_steps=max_val_steps, log_scalars=log_scalars)
 
         self.state_obs = RollingObs()
         self.state_mean = None
@@ -139,7 +139,8 @@ class Curiosity_Trainer(SyncMultiEnvTrainer):
         hyper_paras = {'learning_rate':model.lr, 'learning_rate_final':model.lr_final, 'lr_decay_steps':model.decay_steps,
          'grad_clip':model.grad_clip, 'nsteps':self.nsteps, 'num_workers':self.num_envs, 'total_steps':self.total_steps,
           'entropy_coefficient':0.01, 'value_coefficient':0.5, 'reward_scale':model.reward_scale,
-          'forward_model_scale':model.forward_coeff, 'policy_importance':model.policy_importance}
+          'forward_model_scale':model.forward_coeff, 'policy_importance':model.policy_importance,
+          'gamma':self.gamma, 'lambda':self.lambda_}
     
         if self.log_scalars:
             filename = log_dir + '/hyperparameters.txt'

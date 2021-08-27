@@ -6,11 +6,11 @@ from itertools import chain
 # Code was inspired from or modified from OpenAI baselines https://github.com/openai/baselines/tree/master/baselines/common
 
 class Env(object):
-    def __init__(self,env,worker_id=0): #, Wrappers=None, **wrapper_args):
+    def __init__(self, env, worker_id=0): #, Wrappers=None, **wrapper_args):
         #self.env_id = env_id
         #env = gym.make(env_id)
         self.parent, self.child = mp.Pipe()
-        self.worker = Env.Worker(worker_id,env,self.child)
+        self.worker = Worker(worker_id, env, self.child)
         self.worker.daemon = True
         self.worker.start()
         self.open = True        
@@ -54,46 +54,43 @@ class Env(object):
         #if self.open:
         self._send_step('render', None)
     
-    class Worker(mp.Process):
-        def __init__(self, worker_id, env, connection):
-            import gym
-            np.random.seed()
-            mp.Process.__init__(self)
-            self.env = env #gym.make(env_id)
-            self.worker_id = worker_id
-            self.connection = connection
-        
-        def _step(self):
-            try:
-                while True:
-                    cmd, a = self.connection.recv()
-                    if cmd == 'step':
-                        obs, r, done, info = self.env.step(a)
-                        if done:
-                            obs = self.env.reset()
-                        self.connection.send((obs,r,done,info))
-                    elif cmd == 'render':
-                        self.env.render()
-                        #self.connection.send((1))
-                    elif cmd == 'reset':
-                        obs = self.env.reset()
-                        self.connection.send(obs)
-                    elif cmd == 'getattr':
-                        self.connection.send(getattr(self.env, a))
-                    elif cmd == 'close':
-                        self.env.close()
-                        #self.connection.send((1))
-                        break
-            except KeyboardInterrupt:
-                print("closing worker")
-            finally:
-                self.env.close()
-                #self.connection.close()
+class Worker(mp.Process):
+    def __init__(self, worker_id, env, connection):
+        import gym
+        np.random.seed()
+        mp.Process.__init__(self)
+        self.env = env #gym.make(env_id)
+        self.worker_id = worker_id
+        self.connection = connection
+    
+    def _step(self):
+        try:
+            while True:
+                cmd, a = self.connection.recv()
+                if cmd == 'step':
+                    obs, r, done, info = self.env.step(a)
+                    # auto_reset moved to env wrappers 
+                    self.connection.send((obs,r,done,info))
+                elif cmd == 'render':
+                    self.env.render()
+                    #self.connection.send((1))
+                elif cmd == 'reset':
+                    obs = self.env.reset()
+                    self.connection.send(obs)
+                elif cmd == 'getattr':
+                    self.connection.send(getattr(self.env, a))
+                elif cmd == 'close':
+                    self.env.close()
+                    #self.connection.send((1))
+                    break
+        except KeyboardInterrupt:
+            print("closing worker", self.worker_id)
+        finally:
+            self.env.close()
+            #self.connection.close()
 
-
-        def run(self,):
-            self._step()
-
+    def run(self,):
+        self._step()
 
 
 
@@ -165,12 +162,6 @@ class ChunkEnv(object):
 
         
     def _send_step(self,cmd,actions):
-        #actions_list = []
-        #for i in range(0,self.num_workers*self.num_chunks, self.num_chunks):
-            #actions_list.append(actions[i:i+self.num_chunks])
-        #print("actions list", actions_list)
-        #for i in range(len(self.parents)):
-            #self.parents[i].send((cmd,actions_list[i]))
         for parent, action_chunk in zip(self.parents,chunks(actions, self.num_chunks)):
             parent.send((cmd,action_chunk))
         return self._recieve
@@ -211,8 +202,7 @@ class ChunkWorker(mp.Process):
                 results = []
                 for a, env in zip(actions,self.envs):
                     obs, r, done, info = env.step(a)
-                    if done:
-                        obs = env.reset()
+                    # auto_reset moved to env wrappers
                     if self.render:
                         self.env.render()
                     results.append((obs,r,done,info))
@@ -236,9 +226,6 @@ class DummyBatchEnv(object):
 
     def __len__(self):
         return len(self.envs)
-    
-    # def __getattr__(self, name):
-    #     return [getattr(self.envs[i], name) for i in range(len(self.envs))]
 
     def __getattr__(self, name):
         return getattr(self.envs[0], name)

@@ -216,16 +216,6 @@ class StackEnv(gym.Wrapper):
         else:
             self._stacked_frames.append(frame)
         return np.concatenate(self._stacked_frames,axis=2)
-    
-    # def stack_frames(self,frame,reset=False):
-    #     frame = self.preprocess(frame)
-    #     if reset:
-    #         for i in range(self.k):
-    #             self._stacked_frames[:,:,i] = frame
-    #     else:
-    #         self._stacked_frames = np.roll(self._stacked_frames, -1, axis=-1)
-    #         self._stacked_frames[:,:,-1] = frame
-    #     return self._stacked_frames
 
 
 class AutoResetEnv(gym.Wrapper):
@@ -297,10 +287,12 @@ def apple_pickgame(env, k=1, grey_scale=False, auto_reset=False, max_steps=1000,
 
 
 def AtariEnv(env, k=4, rescale=84, episodic=True, reset=True, clip_reward=True, Noop=True, time_limit=None, channels_first=True, auto_reset=False):
-    # Wrapper function for Determinsitic Atari env 
-    # assert 'Deterministic' in env.spec.id
+    ''' Wrapper function for Determinsitic Atari env 
+        assert 'Deterministic' in env.spec.id
+    '''
     if reset:
         env = FireResetEnv(env)
+    
     if Noop:
         if 'NoFrameskip' in env.spec.id :
             max_op = 30
