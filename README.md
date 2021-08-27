@@ -8,7 +8,7 @@ This repository has working implementations of the following reinforcement agent
           2. Synchronous n-step Double Deep Q Network (Sync-DDQN)  
           3. Proximal Policy Optimisation [(PPO)](https://arxiv.org/abs/1707.06347)  
           4. Random Network Distillation [(RND)](https://arxiv.org/abs/1810.12894)
-          5. UNREAL-A2C2, A2C-CNN version of the [(UNREAL agent)](https://deepmind.com/blog/article/reinforcement-learning-unsupervised-auxiliary-tasks)  
+          5. UNREAL-A2C2, A2C-CNN version of the [(UNREAL agent)](https://deepmind.com/blog/article/reinforcement-learning-unsupervised-auxiliary-tasks)    
           6. Random Network Distillation with Auxiliary Learning (RANDAL), novel solution combining UNREAL and RND agents  
           
           
