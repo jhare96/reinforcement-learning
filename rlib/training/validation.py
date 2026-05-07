@@ -29,7 +29,7 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 
 from rlib.envs import RLVecEnv, wrap
-from rlib.utils.VecEnv import BatchEnv, DummyBatchEnv
+from rlib.envs.vec_env import BatchEnv, DummyBatchEnv
 
 __all__ = ["AsyncValidator", "SyncValidator", "Validator", "make_validator"]
 

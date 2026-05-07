@@ -7,6 +7,16 @@ import torch
 import torch.nn.functional as F
 
 from rlib.A2C.model import A2CModel
+from rlib.envs.wrappers import (
+    AtariRescaleColour,
+    ChannelsFirstEnv,
+    ClipRewardEnv,
+    EpisodicLifeEnv,
+    FireResetEnv,
+    NoopResetEnv,
+    StackEnv,
+    TimeLimitEnv,
+)
 from rlib.networks import A2CConfig, Model
 from rlib.networks.networks import MaskedLSTMBlock
 from rlib.training import SyncMultiEnvTrainer, TrainerConfig
@@ -19,16 +29,6 @@ from rlib.utils.utils import (
     tonumpy_many,
     totorch,
     totorch_many,
-)
-from rlib.utils.wrappers import (
-    AtariRescaleColour,
-    ChannelsFirstEnv,
-    ClipRewardEnv,
-    EpisodicLifeEnv,
-    FireResetEnv,
-    NoopResetEnv,
-    StackEnv,
-    TimeLimitEnv,
 )
 
 # A2C version of Unsupervised Reinforcement Learning with Auxiliary Tasks (UNREAL) https://arxiv.org/abs/1611.05397

@@ -6,6 +6,7 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
+from rlib.envs.vec_env import DummyBatchEnv
 from rlib.training import (
     AsyncValidator,
     SyncValidator,
@@ -13,7 +14,6 @@ from rlib.training import (
     make_validator,
 )
 from rlib.training.returns import GAE, RETURN_FUNCTIONS, lambda_return, nstep_return
-from rlib.utils.VecEnv import DummyBatchEnv
 
 # ---------------------------------------------------------------------------
 # Validation

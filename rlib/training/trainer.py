@@ -9,12 +9,12 @@ import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
+from rlib.envs.vec_env import BatchEnv, DummyBatchEnv
 from rlib.networks import Model
 from rlib.training.config import TrainerConfig
 from rlib.training.returns import RETURN_FUNCTIONS
 from rlib.training.validation import Validator, make_validator
 from rlib.utils.utils import fold_batch
-from rlib.utils.VecEnv import BatchEnv, DummyBatchEnv
 
 
 class SyncMultiEnvTrainer:

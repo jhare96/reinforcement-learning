@@ -231,8 +231,8 @@ class TestAutoLoggedHyperparameters:
         import torch
 
         from rlib.A2C import A2CTrainer, ActorCritic
+        from rlib.envs.vec_env import DummyBatchEnv
         from rlib.networks import A2CConfig
-        from rlib.utils.VecEnv import DummyBatchEnv
 
         class _MLP(torch.nn.Module):
             dense_size = 16

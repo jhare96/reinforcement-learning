@@ -26,9 +26,9 @@ from typing import Any
 
 import numpy as np
 
-from rlib.envs import RLEnvBase, RLVecEnv
-from rlib.envs import make as _make_env
-from rlib.envs import wrap as _wrap_env
+from rlib.envs.base import RLEnvBase, RLVecEnv
+from rlib.envs.registry import make as _make_env
+from rlib.envs.registry import wrap as _wrap_env
 
 # ---------------------------------------------------------------------------
 # Single-env subprocess wrapper

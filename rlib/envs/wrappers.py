@@ -25,7 +25,8 @@ import numpy as np
 import torch
 from PIL import Image
 
-from rlib.envs import RLEnvBase, wrap
+from rlib.envs.base import RLEnvBase
+from rlib.envs.registry import wrap
 
 
 def _ensure_rlenv(env) -> RLEnvBase:

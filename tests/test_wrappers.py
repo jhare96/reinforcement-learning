@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 
 from rlib.envs import RLEnvBase, make
-from rlib.utils.wrappers import (
+from rlib.envs.wrappers import (
     ClipRewardEnv,
     DummyEnv,
     NoRewardEnv,

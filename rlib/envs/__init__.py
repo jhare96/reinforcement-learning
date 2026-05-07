@@ -14,16 +14,23 @@ Public surface:
 * :func:`make` — construct or wrap an env.
 * :func:`wrap` — wrap an already-constructed env.
 * :func:`register_backend` — teach rlib about a new env type.
+
+Concrete vec-env runners and the agent-suite wrappers live in
+:mod:`rlib.envs.vec_env` and :mod:`rlib.envs.wrappers` respectively.
+The most-used names are re-exported here for convenience.
 """
 
 from rlib.envs.base import RLEnv, RLEnvBase, RLVecEnv
 from rlib.envs.registry import make, register_backend, wrap
+from rlib.envs.vec_env import BatchEnv, DummyBatchEnv
 
 __all__ = [
+    "BatchEnv",
+    "DummyBatchEnv",
     "RLEnv",
     "RLEnvBase",
     "RLVecEnv",
     "make",
-    "wrap",
     "register_backend",
+    "wrap",
 ]

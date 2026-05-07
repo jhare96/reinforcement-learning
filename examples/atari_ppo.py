@@ -23,11 +23,11 @@ import sys
 
 import gymnasium as gym
 
+from rlib.envs.vec_env import BatchEnv
+from rlib.envs.wrappers import AtariEnv
 from rlib.networks import PPOConfig
 from rlib.networks.networks import UniverseCNN
 from rlib.PPO import PPO, PPOTrainer, PPOTrainerConfig
-from rlib.utils.VecEnv import BatchEnv
-from rlib.utils.wrappers import AtariEnv
 
 
 def main(env_id: str = "SpaceInvadersDeterministic-v4") -> None:

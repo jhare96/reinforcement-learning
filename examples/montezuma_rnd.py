@@ -20,11 +20,11 @@ from __future__ import annotations
 import gymnasium as gym
 import torch
 
+from rlib.envs.vec_env import BatchEnv
+from rlib.envs.wrappers import AtariEnv
 from rlib.networks import PPOConfig
 from rlib.networks.networks import UniverseCNN
 from rlib.RND import RND, PredictorCNN, RNDTrainer, RNDTrainerConfig
-from rlib.utils.VecEnv import BatchEnv
-from rlib.utils.wrappers import AtariEnv
 
 
 def main() -> None:

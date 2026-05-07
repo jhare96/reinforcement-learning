@@ -5,7 +5,6 @@ import numpy as np
 from rlib.DDQN.model import DQN
 from rlib.training import SyncMultiEnvTrainer, TrainerConfig
 from rlib.utils.utils import fold_batch, one_hot, unfold_batch
-from rlib.utils.wrappers import FireResetEnv, StackEnv
 
 
 @dataclass(frozen=True)
@@ -112,7 +111,3 @@ class SyncDDQN(SyncMultiEnvTrainer):
             last_TargetQsa * one_hot(last_actions, self.action_size), axis=-1
         )  # Q(s, argmax_a Q(s,a; theta); theta-1)
         return states, actions, rewards, dones, values, last_values
-
-
-def stackFireReset(env):
-    return StackEnv(FireResetEnv(env))

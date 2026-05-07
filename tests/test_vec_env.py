@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 
 from rlib.envs import RLEnvBase, wrap
-from rlib.utils.VecEnv import DummyBatchEnv
+from rlib.envs.vec_env import DummyBatchEnv
 
 
 def _identity_constructor(env: object) -> RLEnvBase:
