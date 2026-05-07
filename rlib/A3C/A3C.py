@@ -1,16 +1,11 @@
 import math
 import time
 
-import gymnasium as gym
 import numpy as np
 import torch
-import torch.multiprocessing as mp
 import torch.nn.functional as F
 
-from rlib.A2C.ActorCritic import ActorCritic
-from rlib.networks.networks import NatureCNN
 from rlib.utils.utils import lambda_return, stack_many, tonumpy, totorch
-from rlib.utils.wrappers import AtariEnv
 
 
 def train(global_model, model, env, nsteps, num_episodes, ID):
@@ -152,55 +147,3 @@ class SharedAdam(torch.optim.Adam):
                 p.data.addcdiv_(-step_size, exp_avg, denom)
 
         return loss
-
-
-if __name__ == '__main__':
-    env_id = 'SpaceInvadersDeterministic-v4'
-    env = AtariEnv(gym.make(env_id), reset=True)
-    input_size = env.reset().shape
-    action_size = env.action_space.n
-
-    print('action_size', action_size)
-
-    global_model = ActorCritic(NatureCNN, input_size, action_size, build_optimiser=False)
-    global_model.share_memory()
-
-    # opt = SharedAdam(global_model.parameters(), lr=1e-3)
-    # opt.share_memory()
-
-    # actor = ActorCritic(NatureCNN, input_size, action_size)
-    env_args = {
-        'k': 4,
-        'rescale': 84,
-        'episodic': True,
-        'reset': True,
-        'clip_reward': True,
-        'Noop': True,
-        'time_limit': None,
-        'channels_first': True,
-    }
-    model_args = {
-        'model': NatureCNN,
-        'input_size': input_size,
-        'action_size': action_size,
-        'build_optimiser': False,
-    }
-
-    processes = []
-    for rank in range(8):
-        p = mp.Process(
-            target=train,
-            args=(
-                global_model,
-                ActorCritic(**model_args),
-                AtariEnv(gym.make(env_id), **env_args),
-                20,
-                1000,
-                rank,
-            ),
-        )
-        p.start()
-        processes.append(p)
-        time.sleep(0.5)
-    for p in processes:
-        p.join()

@@ -16,7 +16,7 @@ from __future__ import annotations
 import gymnasium as gym
 import torch
 
-from rlib.A2C import A2C, ActorCritic
+from rlib.A2C import A2CTrainer, ActorCritic
 from rlib.networks import A2CConfig
 from rlib.utils import TrainerConfig
 from rlib.utils.VecEnv import DummyBatchEnv
@@ -70,7 +70,7 @@ def main() -> None:
         ),
     )
 
-    trainer = A2C(
+    trainer = A2CTrainer(
         envs=train_envs,
         model=model,
         val_envs=val_envs,

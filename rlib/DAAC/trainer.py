@@ -1,0 +1,148 @@
+import time
+
+import numpy as np
+
+from rlib.DAAC.model import DAAC
+from rlib.utils import TrainerConfig
+from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.utils.utils import fastsample, fold_many, stack_many
+
+
+class DAACTrainer(SyncMultiEnvTrainer):
+    """Trainer for the Decoupled Advantage Actor-Critic agent."""
+
+    def __init__(
+        self,
+        envs,
+        model: DAAC,
+        val_envs,
+        config: TrainerConfig,
+        *,
+        policy_epochs: int = 1,
+        value_epochs: int = 9,
+        num_minibatches: int = 8,
+    ):
+        super().__init__(envs, model, val_envs, config=config)
+
+        self.policy_epochs = policy_epochs
+        self.value_epochs = value_epochs
+        self.num_minibatches = num_minibatches
+
+        hyper_paras = {
+            'learning_rate': model.lr,
+            'learning_rate_final': model.lr_final,
+            'lr_decay_steps': model.decay_steps,
+            'grad_clip': model.grad_clip,
+            'nsteps': self.nsteps,
+            'num_workers': self.num_envs,
+            'total_steps': self.total_steps,
+            'entropy_coefficient': self.model.entropy_coeff,
+            'advantage_coefficient': self.model.adv_coeff,
+            'value_coefficient': 1.0,
+            'policy_clip': self.model.policy_clip,
+            'num_minibatches': self.num_minibatches,
+            'policy_epochs': self.policy_epochs,
+            'value_epochs': self.value_epochs,
+            'gamma': self.gamma,
+            'lambda': self.lambda_,
+        }
+
+        if config.log_scalars:
+            filename = config.log_dir + '/hyperparameters.txt'
+            self.save_hyperparameters(filename, **hyper_paras)
+
+    def _train_nstep(self):
+        batch_size = self.num_envs * self.nsteps
+        num_updates = self.total_steps // batch_size
+        s = 0
+        mini_batch_size = self.nsteps // self.num_minibatches
+        start = time.time()
+        # main loop
+        for t in range(1, num_updates + 1):
+            # rollout_start = time.time()
+            states, actions, rewards, values, last_values, old_policies, dones = self.rollout()
+            # print('rollout time', time.time()-rollout_start)
+            Adv = self.GAE(
+                rewards, values, last_values, dones, gamma=self.gamma, lambda_=self.lambda_
+            )
+            R = self.lambda_return(
+                rewards, values, last_values, dones, gamma=self.gamma, lambda_=self.lambda_
+            )
+            loss_value = 0
+
+            idxs = np.arange(len(states))
+            value_loss = 0
+            for _epoch in range(self.value_epochs):
+                np.random.shuffle(idxs)
+                for batch in range(0, len(states), mini_batch_size):
+                    batch_idxs = idxs[batch : batch + mini_batch_size]
+                    # stack all states, actions and Rs across all workers into a single batch
+                    (
+                        mb_states,
+                        mb_Rs,
+                    ) = fold_many(states[batch_idxs], R[batch_idxs])
+
+                    value_loss += self.model.value.backprop(mb_states.copy(), mb_Rs.copy())
+
+            value_loss /= self.value_epochs
+
+            idxs = np.arange(len(states))
+            policy_loss = 0
+            for _epoch in range(self.policy_epochs):
+                np.random.shuffle(idxs)
+                for batch in range(0, len(states), mini_batch_size):
+                    batch_idxs = idxs[batch : batch + mini_batch_size]
+                    # stack all states, actions and Rs across all workers into a single batch
+                    mb_states, mb_actions, mb_Adv, mb_old_policies = fold_many(
+                        states[batch_idxs],
+                        actions[batch_idxs],
+                        Adv[batch_idxs],
+                        old_policies[batch_idxs],
+                    )
+
+                    policy_loss += self.model.policy.backprop(
+                        mb_states.copy(), mb_Adv.copy(), mb_actions.copy(), mb_old_policies.copy()
+                    )
+
+            policy_loss /= self.policy_epochs
+            loss_value = policy_loss + value_loss
+
+            if (
+                self.render_freq > 0
+                and t % ((self.validate_freq // batch_size) * self.render_freq) == 0
+            ):
+                render = True
+            else:
+                render = False
+
+            if self.validate_freq > 0 and t % (self.validate_freq // batch_size) == 0:
+                # val_time = time.time()
+                self.validation_summary(t, loss_value, start, render)
+                # print('validation time', time.time()-val_time)
+                start = time.time()
+
+            if self.save_freq > 0 and t % (self.save_freq // batch_size) == 0:
+                s += 1
+                self.save(s)
+                print('saved model')
+
+    def get_action(self, states):
+        policies, values = self.model.evaluate(states)
+        actions = fastsample(policies)
+        return actions
+
+    def rollout(self):
+        rollout = []
+        for _t in range(self.nsteps):
+            policies, values = self.model.evaluate(self.states)
+            actions = fastsample(policies)
+            next_states, rewards, dones, infos = self.env.step(actions)
+            rollout.append((self.states, actions, rewards, values, policies, dones))
+            self.states = next_states
+
+        states, actions, rewards, values, policies, dones = stack_many(*zip(*rollout))
+        (
+            policy,
+            last_values,
+        ) = self.model.evaluate(next_states)
+        return states, actions, rewards, values, last_values, policies, dones

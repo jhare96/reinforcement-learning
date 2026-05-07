@@ -1,5 +1,6 @@
 """Intrinsic Curiosity Module (ICM) based agent."""
 
-from rlib.Curiosity.CuriosityA2C import ICM, Curiosity, Curiosity_Trainer
+from rlib.Curiosity.model import ICM, Curiosity
+from rlib.Curiosity.trainer import CuriosityTrainer
 
-__all__ = ["ICM", "Curiosity", "Curiosity_Trainer"]
+__all__ = ["ICM", "Curiosity", "CuriosityTrainer"]

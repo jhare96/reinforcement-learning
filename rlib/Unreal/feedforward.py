@@ -1,16 +1,13 @@
 import contextlib
-import datetime
 import time
 from collections import deque
 
-import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rlib.A2C.ActorCritic import ActorCritic
+from rlib.A2C.model import ActorCritic
 from rlib.networks import A2CConfig, Model
-from rlib.networks.networks import UniverseCNN
 from rlib.utils import TrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import (
@@ -23,8 +20,6 @@ from rlib.utils.utils import (
     totorch,
     totorch_many,
 )
-from rlib.utils.VecEnv import BatchEnv, DummyBatchEnv
-from rlib.utils.wrappers import AtariEnv, DummyEnv, apple_pickgame
 
 # A2C-CNN version of Unsupervised Reinforcement Learning with Auxiliary Tasks (UNREAL) https://arxiv.org/abs/1611.05397
 # Modifications:
@@ -217,10 +212,12 @@ class UnrealA2C2(Model):
 
 
 class UnrealTrainer(SyncMultiEnvTrainer):
+    """Trainer for the feed-forward UNREAL agent."""
+
     def __init__(
         self,
         envs,
-        model,
+        model: UnrealA2C2,
         val_envs,
         config: TrainerConfig,
         *,
@@ -468,120 +465,3 @@ class UnrealTrainer(SyncMultiEnvTrainer):
         policy, value = self.model.evaluate(state)
         action = int(np.random.choice(policy.shape[1], p=policy[0]))
         return action
-
-
-def main(env_id):
-    num_envs = 32
-    nsteps = 20
-
-    classic_list = ['MountainCar-v0', 'Acrobot-v1', 'LunarLander-v2', 'CartPole-v0', 'CartPole-v1']
-    if any(env_id in s for s in classic_list):
-        print('Classic Control')
-        val_envs = [gym.make(env_id) for i in range(16)]
-        envs = BatchEnv(DummyEnv, env_id, num_envs, blocking=False)
-
-    elif 'ApplePicker' in env_id:
-        print('ApplePicker')
-        make_args = {'num_objects': 300, 'default_reward': 0}
-        val_envs = [
-            apple_pickgame(
-                gym.make(env_id, **make_args),
-                max_steps=5000,
-                auto_reset=False,
-                grey_scale=False,
-                k=1,
-            )
-            for i in range(15)
-        ]
-        envs = DummyBatchEnv(
-            apple_pickgame,
-            env_id,
-            num_envs,
-            max_steps=5000,
-            auto_reset=True,
-            grey_scale=False,
-            k=1,
-            make_args=make_args,
-        )
-        print(val_envs[0])
-        print(envs.envs[0])
-
-    else:
-        print('Atari')
-        env = gym.make(env_id)
-        if env.unwrapped.get_action_meanings()[1] == 'FIRE':
-            reset = True
-            print('fire on reset')
-        else:
-            reset = False
-            print('only stack frames')
-        env.close()
-        val_envs = [
-            AtariEnv(gym.make(env_id), k=4, episodic=False, reset=reset, clip_reward=False)
-            for i in range(15)
-        ]
-        envs = BatchEnv(
-            AtariEnv,
-            env_id,
-            num_envs,
-            blocking=False,
-            k=4,
-            reset=reset,
-            episodic=False,
-            clip_reward=True,
-            time_limit=4500,
-        )
-
-    action_size = val_envs[0].action_space.n
-    input_size = val_envs[0].reset().shape
-
-    current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
-    train_log_dir = 'logs/UnrealA2C2/' + env_id + '/' + current_time
-    model_dir = "models/UnrealA2C2/" + env_id + '/' + current_time
-
-    model = UnrealA2C2(
-        UniverseCNN,
-        input_shape=input_size,
-        action_size=action_size,
-        PC=1,
-        entropy_coeff=0.01,
-        lr=1e-3,
-        lr_final=1e-6,
-        decay_steps=50e6 // (num_envs * nsteps),
-        pixel_control=True,
-        grad_clip=0.5,
-        policy_args={},
-    ).cuda()
-
-    auxiliary = UnrealTrainer(
-        envs=envs,
-        model=model,
-        model_dir=model_dir,
-        log_dir=train_log_dir,
-        val_envs=val_envs,
-        train_mode='nstep',
-        total_steps=50e6,
-        nsteps=nsteps,
-        normalise_obs=True,
-        validate_freq=5e5,
-        save_freq=0,
-        render_freq=0,
-        num_val_episodes=15,
-        log_scalars=True,
-    )
-
-    auxiliary.train()
-
-    del auxiliary
-
-
-if __name__ == "__main__":
-    env_id_list = [
-        'SpaceInvadersDeterministic-v4',
-        'MontezumaRevengeDeterministic-v4FreewayDeterministic-v4',
-        'PongDeterministic-v4',
-    ]
-    # env_id_list = ['MountainCar-v0','CartPole-v1', 'Acrobot-v1']
-    env_id_list = ['ApplePicker-v0']
-    for env_id in env_id_list:
-        main(env_id)

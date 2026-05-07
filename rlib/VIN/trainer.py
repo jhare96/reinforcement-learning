@@ -1,102 +1,25 @@
-import datetime
 import threading
 import time
 
-import gymnasium as gym
 import numpy as np
-import torch
-import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
-from rlib.networks import Model, ModelConfig
-from rlib.utils.utils import fold_batch, one_hot, stack_many, tonumpy, totorch
-from rlib.utils.VecEnv import BatchEnv, DummyBatchEnv
-from rlib.utils.wrappers import AtariEnv, apple_pickgame
-
-
-class VINCNN(Model):
-    def __init__(self, input_size, action_size, k=10, lr=1e-3, device='cuda'):
-        # VIN historically used a constant LR (no scheduler decay) and
-        # no gradient clipping; encode that as a fixed config preset.
-        config = ModelConfig(
-            lr=lr,
-            lr_final=lr,
-            decay_steps=int(1e9),
-            grad_clip=None,
-            device=device,
-        )
-        super().__init__(config=config)
-        channels, height, width = input_size
-        self.action_size = action_size
-        self.conv_enc = torch.nn.Conv2d(
-            channels, 150, kernel_size=(3, 3), stride=(1, 1), padding=1
-        ).to(device)  # φ(s)
-        self.R_bar = torch.nn.Conv2d(
-            150, 1, kernel_size=(1, 1), stride=(1, 1), padding=0, bias=False
-        ).to(device)
-        self.Q_bar = torch.nn.Conv2d(
-            1, action_size, kernel_size=(3, 3), stride=(1, 1), padding=1, bias=False
-        ).to(device)
-        self.w = torch.nn.Parameter(torch.zeros(action_size, 1, 3, 3), requires_grad=True).to(
-            device
-        )
-        self.Q = torch.nn.Linear(action_size, action_size).to(device)
-        self.k = k  # nsteps to plan with VIN
-        self._build_optimiser(optim=torch.optim.RMSprop)
-
-    def forward(self, img, x, y):
-        hidden = self.conv_enc(img)
-        R_bar = self.R_bar(hidden)
-        Q_bar = self.Q_bar(R_bar)
-        V_bar, _ = torch.max(Q_bar, dim=1, keepdim=True)
-        batch_size = img.shape[0]
-        psi = self._plan_ahead(R_bar, V_bar)[torch.arange(batch_size), :, x.long(), y.long()].view(
-            batch_size, self.action_size
-        )  # ψ(s)
-        Qsa = self.Q(psi)
-        return Qsa
-
-    def evaluate(self, state, loc):
-        with torch.no_grad():
-            x, y = zip(*loc)
-            x = torch.tensor(x).to(self.device)
-            y = torch.tensor(y).to(self.device)
-            Qsa = self.forward(totorch(state, self.device), x, y)
-        return tonumpy(Qsa)
-
-    def backprop(self, states, locs, R, actions):
-        x, y = zip(*locs)
-        Qsa = self.forward(
-            totorch(states, self.device), torch.tensor(x).to(self.device), torch.tensor(y)
-        ).to(self.device)
-        actions_onehot = totorch(one_hot(actions, self.action_size), self.device)
-        Qvalue = torch.sum(Qsa * actions_onehot, axis=1)
-        loss = torch.mean(torch.square(totorch(R).float().cuda() - Qvalue))
-        return self._train_step(loss)
-
-    def value_iteration(self, r, V):
-        return F.conv2d(
-            # Stack reward with most recent value
-            torch.cat([r, V], 1),
-            # Convolve r->q weights to r, and v->q weights for v. These represent transition probabilities
-            torch.cat([self.Q_bar.weight, self.w], 1),
-            stride=1,
-            padding=1,
-        )
-
-    def _plan_ahead(self, r, V):
-        for _i in range(self.k):
-            Q = self.value_iteration(r, V)
-            V, _ = torch.max(Q, dim=1, keepdim=True)
-
-        Q = self.value_iteration(r, V)
-        return Q
+from rlib.utils.utils import fold_batch, one_hot, stack_many
+from rlib.VIN.model import VINCNN
 
 
 class VINTrainer:
+    """Standalone trainer for the Value Iteration Network agent.
+
+    Doesn't subclass :class:`SyncMultiEnvTrainer` because VIN's
+    optimisation loop and observation interface are noticeably different
+    (no value-targets / advantage estimates, location-aware action
+    selection). Could be migrated in a future refactor.
+    """
+
     def __init__(
         self,
-        model,
+        model: VINCNN,
         envs,
         val_envs,
         epsilon=0.1,
@@ -400,85 +323,3 @@ class VINTrainer:
                 self._epsilon = self._epsilon_final
 
             return self._epsilon
-
-
-def main(env_id):
-    num_envs = 32
-    nsteps = 1
-
-    current_time = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
-
-    train_log_dir = 'logs/VIN/' + env_id + '/n_step/' + current_time
-    "models/VIN/" + env_id + '/n_step/' + current_time
-
-    if 'ApplePicker' in env_id:
-        print('ApplePicker')
-        make_args = {'num_objects': 300, 'default_reward': -0.01}
-        val_envs = [apple_pickgame(gym.make('ApplePicker-v0', **make_args)) for i in range(10)]
-        envs = DummyBatchEnv(
-            apple_pickgame,
-            'ApplePicker-v0',
-            num_envs,
-            max_steps=1000,
-            auto_reset=True,
-            make_args=make_args,
-        )
-        print(val_envs[0])
-        print(envs.envs[0])
-
-    else:
-        print('Atari')
-        env = gym.make(env_id)
-        if env.unwrapped.get_action_meanings()[1] == 'FIRE':
-            reset = True
-            print('fire on reset')
-        else:
-            reset = False
-            print('only stack frames')
-        env.close()
-        val_envs = [
-            AtariEnv(gym.make(env_id), k=4, episodic=False, reset=reset, clip_reward=False)
-            for i in range(5)
-        ]
-        envs = BatchEnv(
-            AtariEnv,
-            env_id,
-            num_envs,
-            blocking=False,
-            k=4,
-            reset=reset,
-            episodic=False,
-            clip_reward=True,
-        )
-
-    action_size = val_envs[0].action_space.n
-    input_size = val_envs[0].reset().shape
-    print('input shape', input_size)
-    print('action space', action_size)
-
-    vin = VINCNN(input_size, action_size, k=50, lr=1e-3).cuda()
-
-    trainer = VINTrainer(
-        envs=envs,
-        model=vin,
-        log_dir=train_log_dir,
-        val_envs=val_envs,
-        return_type='nstep',
-        total_steps=10e6,
-        nsteps=nsteps,
-        validate_freq=1e5,
-        save_freq=0,
-        render_freq=0,
-        num_val_episodes=10,
-        log_scalars=False,
-    )
-
-    trainer.train()
-
-
-if __name__ == "__main__":
-    # env_id_list = ['SpaceInvadersDeterministic-v4', 'FreewayDeterministic-v4', 'MontezumaRevengeDeterministic-v4', 'PongDeterministic-v4']
-    # env_id_list = ['MontezumaRevengeDeterministic-v4']
-    env_id_list = ['ApplePicker-v0']
-    for env_id in env_id_list:
-        main(env_id)
