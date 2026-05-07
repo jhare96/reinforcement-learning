@@ -1,11 +1,12 @@
 import time
 from collections import deque
+from dataclasses import dataclass
 
 import numpy as np
 
 from rlib.RANDAL.model import RANDAL, sign
 from rlib.RND.model import RewardForwardFilter
-from rlib.utils import RANDALTrainerConfig
+from rlib.RND.trainer import RNDTrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import (
     RunningMeanStd,
@@ -13,6 +14,18 @@ from rlib.utils.utils import (
     fold_many,
     stack_many,
 )
+
+
+@dataclass(frozen=True)
+class RANDALTrainerConfig(RNDTrainerConfig):
+    """Hyperparameters for :class:`RANDALTrainer`.
+
+    Inherits the RND extra fields and adds the UNREAL replay buffer
+    knobs.
+    """
+
+    replay_length: int = 2000
+    norm_pixel_reward: bool = True
 
 
 class RANDALTrainer(SyncMultiEnvTrainer):

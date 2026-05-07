@@ -25,8 +25,7 @@ import gymnasium as gym
 
 from rlib.networks import PPOConfig
 from rlib.networks.networks import UniverseCNN
-from rlib.PPO import PPO, PPOTrainer
-from rlib.utils import PPOTrainerConfig
+from rlib.PPO import PPO, PPOTrainer, PPOTrainerConfig
 from rlib.utils.VecEnv import BatchEnv
 from rlib.utils.wrappers import AtariEnv
 

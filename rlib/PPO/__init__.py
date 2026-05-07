@@ -1,6 +1,6 @@
 """Proximal Policy Optimisation."""
 
 from rlib.PPO.model import PPO, PPOModel
-from rlib.PPO.trainer import PPOTrainer
+from rlib.PPO.trainer import PPOTrainer, PPOTrainerConfig
 
-__all__ = ["PPO", "PPOModel", "PPOTrainer"]
+__all__ = ["PPO", "PPOModel", "PPOTrainer", "PPOTrainerConfig"]

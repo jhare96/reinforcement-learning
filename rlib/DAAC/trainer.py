@@ -1,11 +1,21 @@
 import time
+from dataclasses import dataclass
 
 import numpy as np
 
 from rlib.DAAC.model import DAAC
-from rlib.utils import DAACTrainerConfig
+from rlib.utils import TrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import fastsample, fold_many, stack_many
+
+
+@dataclass(frozen=True)
+class DAACTrainerConfig(TrainerConfig):
+    """Hyperparameters for :class:`DAACTrainer`."""
+
+    policy_epochs: int = 1
+    value_epochs: int = 9
+    num_minibatches: int = 8
 
 
 class DAACTrainer(SyncMultiEnvTrainer):

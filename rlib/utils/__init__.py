@@ -5,26 +5,6 @@ The canonical, backend-agnostic environment API lives in
 ``wrap``, ``register_backend``).
 """
 
-from rlib.utils.trainer_config import (
-    DAACTrainerConfig,
-    DDQNTrainerConfig,
-    PPOTrainerConfig,
-    RANDALTrainerConfig,
-    ReturnType,
-    RNDTrainerConfig,
-    TrainerConfig,
-    TrainMode,
-    UnrealTrainerConfig,
-)
+from rlib.utils.trainer_config import ReturnType, TrainerConfig, TrainMode
 
-__all__ = [
-    "DAACTrainerConfig",
-    "DDQNTrainerConfig",
-    "PPOTrainerConfig",
-    "RANDALTrainerConfig",
-    "ReturnType",
-    "RNDTrainerConfig",
-    "TrainerConfig",
-    "TrainMode",
-    "UnrealTrainerConfig",
-]
+__all__ = ["ReturnType", "TrainerConfig", "TrainMode"]

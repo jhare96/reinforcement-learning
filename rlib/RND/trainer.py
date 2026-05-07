@@ -1,11 +1,26 @@
 import time
+from dataclasses import dataclass
 
 import numpy as np
 
 from rlib.RND.model import RND, RewardForwardFilter
-from rlib.utils import RNDTrainerConfig
+from rlib.utils import TrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import RunningMeanStd, fastsample, fold_many, stack_many
+
+
+@dataclass(frozen=True)
+class RNDTrainerConfig(TrainerConfig):
+    """Hyperparameters for :class:`RNDTrainer`.
+
+    ``gamma`` is reused as the *extrinsic* discount; the intrinsic
+    discount is the new ``gamma_intr`` field.
+    """
+
+    gamma_intr: float = 0.99
+    init_obs_steps: int = 600
+    num_epochs: int = 4
+    num_minibatches: int = 4
 
 
 class RNDTrainer(SyncMultiEnvTrainer):

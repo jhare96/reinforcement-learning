@@ -6,18 +6,14 @@ import dataclasses
 
 import pytest
 
+from rlib.DAAC import DAACTrainerConfig  # noqa: I001 — agent imports after utils for clarity
+from rlib.DDQN import DDQNTrainerConfig
 from rlib.networks import A2CConfig, ModelConfig, PPOConfig
-from rlib.utils import (
-    DAACTrainerConfig,
-    DDQNTrainerConfig,
-    PPOTrainerConfig,
-    RANDALTrainerConfig,
-    ReturnType,
-    RNDTrainerConfig,
-    TrainerConfig,
-    TrainMode,
-    UnrealTrainerConfig,
-)
+from rlib.PPO import PPOTrainerConfig
+from rlib.RANDAL import RANDALTrainerConfig
+from rlib.RND import RNDTrainerConfig
+from rlib.Unreal import UnrealTrainerConfig
+from rlib.utils import ReturnType, TrainerConfig, TrainMode
 
 
 class TestModelConfig:

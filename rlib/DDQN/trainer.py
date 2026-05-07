@@ -1,10 +1,22 @@
+from dataclasses import dataclass
+
 import numpy as np
 
 from rlib.DDQN.model import DQN
-from rlib.utils import DDQNTrainerConfig
+from rlib.utils import TrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import fold_batch, one_hot, unfold_batch
 from rlib.utils.wrappers import FireResetEnv, StackEnv
+
+
+@dataclass(frozen=True)
+class DDQNTrainerConfig(TrainerConfig):
+    """Hyperparameters for :class:`SyncDDQN`."""
+
+    epsilon_start: float = 1.0
+    epsilon_final: float = 0.01
+    epsilon_steps: float = 1e6
+    epsilon_test: float = 0.01
 
 
 class SyncDDQN(SyncMultiEnvTrainer):

@@ -1,6 +1,7 @@
 import contextlib
 import time
 from collections import deque
+from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -8,7 +9,7 @@ import torch.nn.functional as F
 
 from rlib.A2C.model import ActorCritic
 from rlib.networks import A2CConfig, Model
-from rlib.utils import UnrealTrainerConfig
+from rlib.utils import TrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import (
     GAE,
@@ -209,6 +210,14 @@ class UnrealA2C2(Model):
 
         loss = forward_loss + aux_losses
         return self._train_step(loss)
+
+
+@dataclass(frozen=True)
+class UnrealTrainerConfig(TrainerConfig):
+    """Hyperparameters for the feed-forward :class:`UnrealTrainer`."""
+
+    normalise_obs: bool = True
+    replay_length: int = 2000
 
 
 class UnrealTrainer(SyncMultiEnvTrainer):
