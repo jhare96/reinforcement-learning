@@ -103,6 +103,11 @@ tensorboard --logdir logs/
 More runnable examples — including Atari PPO and Montezuma's Revenge with
 RND — live under [`examples/`](examples/).
 
+For full reproductions of the experiments from the
+[*Dealing with sparse rewards*](https://arxiv.org/abs/1910.09281) paper see
+[`examples/paper/`](examples/paper/), which has one script per (agent, env class)
+pair with the paper's hyperparameters baked in.
+
 ## Repository layout
 
 ```
