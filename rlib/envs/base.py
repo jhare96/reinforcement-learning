@@ -91,11 +91,11 @@ class RLEnvBase(ABC):
     # ----- helpful defaults that forward to the wrapped env --------
 
     @property
-    def observation_space(self) -> Any:  # type: ignore[override]
+    def observation_space(self) -> Any:
         return self.env.observation_space
 
     @property
-    def action_space(self) -> Any:  # type: ignore[override]
+    def action_space(self) -> Any:
         return self.env.action_space
 
     @property

@@ -1,7 +1,7 @@
 # rlib — a small PyTorch reinforcement learning library
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](pyproject.toml)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![PyTorch](https://img.shields.io/badge/PyTorch-1.13%2B-EE4C2C.svg)](https://pytorch.org/)
 [![Gymnasium](https://img.shields.io/badge/Gymnasium-0.29%2B-007ACC.svg)](https://gymnasium.farama.org/)
 
@@ -42,11 +42,13 @@ pip install -e ".[mujoco]"    # MuJoCo continuous-control envs
 pip install -e ".[docs]"      # Build the local documentation
 ```
 
-`rlib` targets **Python 3.8+**, **PyTorch 1.13+** and
+`rlib` targets **Python 3.10+**, **PyTorch 1.13+** and
 [**Gymnasium**](https://gymnasium.farama.org/) (the maintained successor to
-OpenAI Gym). A compatibility shim — `rlib.utils.gym_compat` — lets the library
-also work transparently against the legacy `gym` package, so existing scripts
-continue to function.
+OpenAI Gym). The :mod:`rlib.envs` package provides a backend-agnostic env
+abstraction (`RLEnv` Protocol, `RLEnvBase` ABC, `make`/`wrap`/`register_backend`)
+so the library also works against legacy `gym` and is easy to extend to other
+gym-like backends. The previous `rlib.utils.gym_compat` shim is now deprecated
+in favour of `rlib.envs.wrap` but still works for one release cycle.
 
 A `Dockerfile` is provided for fully-reproducible setups (see below).
 

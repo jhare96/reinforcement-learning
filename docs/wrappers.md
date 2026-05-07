@@ -3,14 +3,21 @@
 `rlib.utils.wrappers` provides a small set of environment wrappers,
 inspired by (and originally adapted from) the OpenAI Baselines wrappers.
 
-All wrappers are `gym.Wrapper` subclasses and expose the **legacy 4-tuple
-step API** — `(obs, reward, done, info)` — regardless of whether the
-underlying base env is a Gymnasium (5-tuple) or legacy Gym env. The
-translation happens in
-[`rlib.utils.gym_compat`](https://github.com/jhare96/reinforcement-learning/blob/master/rlib/utils/gym_compat.py),
-which collapses Gymnasium's `terminated` and `truncated` flags into a single
-`done` via a logical OR (and surfaces the truncation under
-`info["TimeLimit.truncated"]`).
+All wrappers subclass
+[`rlib.envs.RLEnvBase`](https://github.com/jhare96/reinforcement-learning/blob/master/rlib/envs/base.py)
+and use the **modern 5-tuple step API** —
+`(obs, reward, terminated, truncated, info)` — together with
+`reset(*, seed=None, options=None) -> (obs, info)`. Backend translation
+(legacy gym 4-tuple, `dm_env`, ...) lives once in
+[`rlib.envs.adapters`](https://github.com/jhare96/reinforcement-learning/tree/master/rlib/envs/adapters);
+from a wrapper's point of view, the underlying env is always canonical.
+
+The 5→4-tuple collapse for agent rollout code happens at a single
+boundary inside the vectorised env runners
+([`rlib.utils.VecEnv.RLVecEnv`](https://github.com/jhare96/reinforcement-learning/blob/master/rlib/envs/base.py)),
+so existing `(obs, rewards, dones, infos) = env.step(actions)` agent code
+keeps working unchanged. Truncations are surfaced as
+`info["TimeLimit.truncated"]`.
 
 ## Reference
 

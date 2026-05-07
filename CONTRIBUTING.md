@@ -27,20 +27,32 @@ For Atari work, also install `pip install -e ".[atari]"`.
 
 ## Coding style
 
-- Target **Python 3.8+**.
+- Target **Python 3.10+**.
 - Match the surrounding code style. The codebase is gradually being typed —
-  please add type hints to any new public function.
+  please add type hints (PEP 604 `X | Y` union syntax, built-in generics
+  like `list[int]`/`dict[str, Any]`) to any new public function.
 - Keep changes focused: one feature or fix per PR.
 - Avoid adding new top-level dependencies unless strictly necessary; prefer
   putting heavy or environment-specific deps behind an optional extra in
   `pyproject.toml`.
 
-## Compatibility shim
+## Environment abstraction
 
-When touching wrappers or vectorised env runners, please use the helpers in
-[`rlib/utils/gym_compat.py`](rlib/utils/gym_compat.py)
-(`step_compat`, `reset_compat`) so the change keeps working under both
-Gymnasium and legacy Gym.
+When touching wrappers, vectorised env runners, or adding support for a new
+gym-like backend (`dm_env`, PettingZoo, EnvPool, an in-house simulator, ...),
+build on the [`rlib.envs`](rlib/envs/) package:
+
+- Subclass [`RLEnvBase`](rlib/envs/base.py) (or, for protocol-only typing,
+  use the `RLEnv` Protocol) and implement the modern 5-tuple
+  `step(action) -> (obs, reward, terminated, truncated, info)` and
+  `reset(*, seed=None, options=None) -> (obs, info)`.
+- For a new backend, drop a small adapter file under
+  [`rlib/envs/adapters/`](rlib/envs/adapters/) and register it with
+  `register_backend(predicate, adapter_cls)` so `rlib.envs.make` /
+  `rlib.envs.wrap` will auto-pick it up.
+
+The legacy `rlib.utils.gym_compat.step_compat` / `reset_compat` helpers are
+deprecated and emit a `DeprecationWarning`; do not call them in new code.
 
 ## Submitting a pull request
 
