@@ -32,6 +32,7 @@ _LAZY_SUBMODULES = {
     "VIN": "rlib.VIN",
     "envs": "rlib.envs",
     "networks": "rlib.networks",
+    "training": "rlib.training",
     "utils": "rlib.utils",
 }
 

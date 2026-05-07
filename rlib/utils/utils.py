@@ -110,64 +110,6 @@ class RunningMeanStd:
         return self.mean, np.sqrt(self.var)
 
 
-def nstep_return(rewards, last_values, dones, gamma=0.99, clip=False):
-    if clip:
-        rewards = np.clip(rewards, -1, 1)
-
-    T = len(rewards)
-
-    # Calculate R for advantage A = R - V
-    R = np.zeros_like(rewards)
-    R[-1] = last_values * (1 - dones[-1])
-
-    for i in reversed(range(T - 1)):
-        # restart score if done as BatchEnv automatically resets after end of episode
-        R[i] = rewards[i] + gamma * R[i + 1] * (1 - dones[i])
-
-    return R
-
-
-def lambda_return(
-    rewards,
-    values,
-    last_values,
-    dones,
-    gamma=0.99,
-    lambda_=0.8,
-    clip=False,
-):
-    if clip:
-        rewards = np.clip(rewards, -1, 1)
-    T = len(rewards)
-    # Calculate eligibility trace R^lambda
-    R = np.zeros_like(rewards)
-    R[-1] = last_values * (1 - dones[-1])
-    for t in reversed(range(T - 1)):
-        # restart score if done as BatchEnv automatically resets after end of episode
-        R[t] = rewards[t] + gamma * (lambda_ * R[t + 1] + (1.0 - lambda_) * values[t + 1]) * (
-            1 - dones[t]
-        )
-
-    return R
-
-
-def GAE(
-    rewards,
-    values,
-    last_values,
-    dones,
-    gamma=0.99,
-    lambda_=0.95,
-    clip=False,
-):
-    if clip:
-        rewards = np.clip(rewards, -1, 1)
-    # Generalised Advantage Estimation
-    Adv = np.zeros_like(rewards)
-    Adv[-1] = rewards[-1] + gamma * last_values * (1 - dones[-1]) - values[-1]
-    T = len(rewards)
-    for t in reversed(range(T - 1)):
-        delta = rewards[t] + gamma * values[t + 1] * (1 - dones[t]) - values[t]
-        Adv[t] = delta + gamma * lambda_ * Adv[t + 1] * (1 - dones[t])
-
-    return Adv
+# Return / advantage estimators moved to rlib.training.returns; re-exported
+# here for backwards compatibility (import paths used by A3C, tests, etc.).
+from rlib.training.returns import GAE, lambda_return, nstep_return  # noqa: E402, F401

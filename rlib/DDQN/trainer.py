@@ -3,8 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from rlib.DDQN.model import DQN
-from rlib.utils import TrainerConfig
-from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.training import SyncMultiEnvTrainer, TrainerConfig
 from rlib.utils.utils import fold_batch, one_hot, unfold_batch
 from rlib.utils.wrappers import FireResetEnv, StackEnv
 

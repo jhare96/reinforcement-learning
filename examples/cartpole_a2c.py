@@ -18,7 +18,7 @@ import torch
 
 from rlib.A2C import A2CTrainer, ActorCritic
 from rlib.networks import A2CConfig
-from rlib.utils import TrainerConfig
+from rlib.training import TrainerConfig
 from rlib.utils.VecEnv import DummyBatchEnv
 
 

@@ -10,7 +10,9 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from rlib.networks import Model
-from rlib.utils.trainer_config import TrainerConfig
+from rlib.training.config import TrainerConfig
+from rlib.training.returns import RETURN_FUNCTIONS
+from rlib.training.validation import Validator, make_validator
 from rlib.utils.utils import fold_batch
 from rlib.utils.VecEnv import BatchEnv, DummyBatchEnv
 
@@ -20,6 +22,7 @@ class SyncMultiEnvTrainer:
 
     model: Model
     config: TrainerConfig
+    validator: Validator
     train_writer: SummaryWriter
     train_log_dir: str
 
@@ -44,10 +47,7 @@ class SyncMultiEnvTrainer:
         self.config = config
 
         self.env = envs
-        if isinstance(val_envs, list):
-            self.validate_func = self.validate_async
-        else:
-            self.validate_func = self.validate_sync
+        self.validator = make_validator(val_envs)
         assert config.num_val_episodes >= len(val_envs), (
             f'number of validation epsiodes {config.num_val_episodes} must be greater than or '
             f'equal to the number of validation envs {len(val_envs)}'
@@ -55,7 +55,6 @@ class SyncMultiEnvTrainer:
         self.num_envs = len(envs)
         self.env_id = envs.spec.id
         self.val_envs = val_envs
-        self.validate_rewards: list[Any] = []
         self.model = model
 
         # Mirror config fields onto ``self`` for ergonomics — most of
@@ -77,6 +76,10 @@ class SyncMultiEnvTrainer:
         self.model_dir = config.model_dir
 
         self.lock = threading.Lock()
+        # Kept for backwards-compatibility: agents with custom recurrent
+        # validation loops (A2C-LSTM, UNREAL-LSTM, VIN) push per-episode
+        # scores onto this list under ``self.lock``.
+        self.validate_rewards: list[Any] = []
         self.s = 0  # number of saves made
         self.t = 1  # number of updates done
         self.states = self.env.reset()
@@ -133,28 +136,11 @@ class SyncMultiEnvTrainer:
         start = time.time()
         batch_size = self.num_envs * self.nsteps
         num_updates = self.total_steps // batch_size
+        return_fn = RETURN_FUNCTIONS[self.config.return_type]
         # main loop
         for t in range(self.t, num_updates + 1):
             states, actions, rewards, dones, values, last_values = self.rollout()
-            if self.return_type == 'nstep':
-                R = self.nstep_return(rewards, last_values, dones, gamma=self.gamma)
-            elif self.return_type == 'GAE':
-                R = (
-                    self.GAE(
-                        rewards, values, last_values, dones, gamma=self.gamma, lambda_=self.lambda_
-                    )
-                    + values
-                )
-            elif self.return_type == 'lambda':
-                R = self.lambda_return(
-                    rewards,
-                    values,
-                    last_values,
-                    dones,
-                    gamma=self.gamma,
-                    lambda_=self.lambda_,
-                    clip=False,
-                )
+            R = return_fn(rewards, values, last_values, dones, self.gamma, self.lambda_)
             # stack all states, actions and Rs from all workers into a single batch
             states, actions, R = fold_batch(states), fold_batch(actions), fold_batch(R)
             loss_value = self.model.backprop(states, R, actions)
@@ -187,68 +173,6 @@ class SyncMultiEnvTrainer:
         """Collect ``self.nsteps`` of experience and return whatever the agent's training loop expects."""
         raise NotImplementedError(f'{type(self).__name__} does not implement rollout')
 
-    def nstep_return(self, rewards, last_values, dones, gamma=0.99, clip=False):
-        if clip:
-            rewards = np.clip(rewards, -1, 1)
-
-        T = len(rewards)
-
-        # Calculate R for advantage A = R - V
-        R = np.zeros_like(rewards)
-        R[-1] = last_values * (1 - dones[-1])
-
-        for i in reversed(range(T - 1)):
-            # restart score if done as BatchEnv automatically resets after end of episode
-            R[i] = rewards[i] + gamma * R[i + 1] * (1 - dones[i])
-
-        return R
-
-    def lambda_return(
-        self,
-        rewards,
-        values,
-        last_values,
-        dones,
-        gamma=0.99,
-        lambda_=0.8,
-        clip=False,
-    ):
-        if clip:
-            rewards = np.clip(rewards, -1, 1)
-        T = len(rewards)
-        # Calculate eligibility trace R^lambda
-        R = np.zeros_like(rewards)
-        R[-1] = last_values * (1 - dones[-1])
-        for t in reversed(range(T - 1)):
-            # restart score if done as BatchEnv automatically resets after end of episode
-            R[t] = rewards[t] + gamma * (lambda_ * R[t + 1] + (1.0 - lambda_) * values[t + 1]) * (
-                1 - dones[t]
-            )
-
-        return R
-
-    def GAE(
-        self,
-        rewards,
-        values,
-        last_values,
-        dones,
-        gamma=0.99,
-        lambda_=0.95,
-        clip=False,
-    ):
-        if clip:
-            rewards = np.clip(rewards, -1, 1)
-        # Generalised Advantage Estimation
-        Adv = np.zeros_like(rewards)
-        Adv[-1] = rewards[-1] + gamma * last_values * (1 - dones[-1]) - values[-1]
-        T = len(rewards)
-        for t in reversed(range(T - 1)):
-            delta = rewards[t] + gamma * values[t + 1] * (1 - dones[t]) - values[t]
-            Adv[t] = delta + gamma * lambda_ * Adv[t + 1] * (1 - dones[t])
-
-        return Adv
-
     def validation_summary(self, t, loss, start, render):
         batch_size = self.num_envs * self.nsteps
         tot_steps = t * batch_size
@@ -256,7 +180,7 @@ class SyncMultiEnvTrainer:
         frames_per_update = (self.validate_freq // batch_size) * batch_size
         fps = frames_per_update / time_taken
 
-        score = self.validate_func(render)
+        score = self._validation_score(render)
         print(
             f"update {t}, validation score {score:f}, total steps {tot_steps}, "
             f"loss {loss:f}, time taken for {frames_per_update} frames:{time_taken:f}s, "
@@ -266,6 +190,23 @@ class SyncMultiEnvTrainer:
         if self.log_scalars:
             self.train_writer.add_scalar('validation/score', score, tot_steps)
             self.train_writer.add_scalar('train/loss', loss, tot_steps)
+
+    def _validation_score(self, render: bool) -> float:
+        """Return a single mean validation score.
+
+        Defaults to dispatching through ``self.validator``.  Recurrent
+        agents whose validation loop needs hidden-state plumbing
+        (A2C-LSTM, UNREAL-LSTM) override this to call their own custom
+        validate_sync/validate_async methods, which still use
+        ``self.lock`` and ``self.validate_rewards`` for thread-safe
+        score collection.
+        """
+        return self.validator.run(
+            self.get_action,
+            num_episodes=self.num_val_episodes,
+            max_steps=self.val_steps,
+            render=render,
+        )
 
     def save_model(self, s):
         model_loc = f'{self.model_dir}/{s}.pt'
@@ -364,107 +305,13 @@ class SyncMultiEnvTrainer:
             for key, value in kwargs.items():
                 handle.write(f"{key} = {value}\n")
 
-    def validate_async(self, render=False):
-        num_val_envs = len(self.val_envs)
-        num_val_eps = [self.num_val_episodes // num_val_envs for i in range(num_val_envs)]
-        num_val_eps[-1] = num_val_eps[-1] + self.num_val_episodes % self.num_val_episodes // (
-            num_val_envs
-        )
-        render_array = np.zeros(len(self.val_envs))
-        render_array[0] = render
-        threads = [
-            threading.Thread(
-                daemon=True,
-                target=self._validate_async,
-                args=(self.val_envs[i], num_val_eps[i], self.val_steps, render_array[i]),
-            )
-            for i in range(num_val_envs)
-        ]
-
-        try:
-            for thread in threads:
-                thread.start()
-
-            for thread in threads:
-                thread.join()
-
-        except KeyboardInterrupt:
-            for thread in threads:
-                thread.join()
-
-        score = np.mean(self.validate_rewards)
-        self.validate_rewards = []
-        return score
-
-    def _validate_async(self, env, num_ep, max_steps, render=False):
-        'single env validation'
-        from rlib.envs import wrap
-        from rlib.envs.base import RLVecEnv
-
-        rl_env = wrap(env)
-        for _episode in range(num_ep):
-            state, _info = rl_env.reset()
-            episode_score = []
-            for t in range(max_steps):
-                action = self.get_action(state[np.newaxis])
-                next_state, reward, terminated, truncated, info = rl_env.step(action)
-                done = RLVecEnv.merge_done(terminated, truncated)
-                state = next_state
-
-                episode_score.append(reward)
-
-                if render:
-                    with self.lock:
-                        env.render()
-
-                if done or t == max_steps - 1:
-                    tot_reward = np.sum(episode_score)
-                    with self.lock:
-                        self.validate_rewards.append(tot_reward)
-
-                    break
-        if render:
-            with self.lock:
-                env.close()
-
-    def validate_sync(self, render=False):
-        'batch env validation'
-        episode_scores = []
-        env = self.val_envs
-        for _episode in range(self.num_val_episodes // len(env)):
-            states = env.reset()
-            episode_score = []
-            for t in range(self.val_steps):
-                actions = self.get_action(states)
-                next_states, rewards, dones, infos = env.step(actions)
-                states = next_states
-                # print('state', state, 'action', action, 'reward', reward)
-
-                episode_score.append(rewards * (1 - dones))
-
-                if render:
-                    with self.lock:
-                        env.render()
-
-                if dones.sum() == self.num_envs or t == self.val_steps - 1:
-                    tot_reward = np.sum(np.stack(episode_score), axis=0)
-                    episode_scores.append(tot_reward)
-                    break
-
-        return np.mean(episode_scores)
-
     def get_action(self, state: np.ndarray) -> Any:
-        """Hook used by the default validation loops to pick an action.
+        """Hook used by the validator to pick an action during evaluation.
 
-        Concrete trainers should override this if they want to use
-        :meth:`validate_sync` / :meth:`validate_async` directly.
+        Concrete trainers must override this if validation is enabled
+        (it's called by every :class:`~rlib.training.validation.Validator`).
         """
         raise NotImplementedError(
-            'get_action method is required when using the default validation functions, '
+            'get_action method is required when validation is enabled, '
             'check that this is implemented properly'
         )
-
-    def fold_batch(self, x):
-        rows, cols = x.shape[0], x.shape[1]
-        y = x.reshape(rows * cols, *x.shape[2:])
-        return y

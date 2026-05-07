@@ -4,8 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from rlib.PPO.model import PPO
-from rlib.utils import TrainerConfig
-from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.training import SyncMultiEnvTrainer, TrainerConfig
 from rlib.utils.utils import fastsample, fold_many, stack_many
 
 

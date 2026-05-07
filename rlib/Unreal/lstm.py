@@ -9,8 +9,7 @@ import torch.nn.functional as F
 from rlib.A2C.model import A2CModel
 from rlib.networks import A2CConfig, Model
 from rlib.networks.networks import MaskedLSTMBlock
-from rlib.utils import TrainerConfig
-from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.training import SyncMultiEnvTrainer, TrainerConfig
 from rlib.utils.utils import (
     fastsample,
     fold_batch,

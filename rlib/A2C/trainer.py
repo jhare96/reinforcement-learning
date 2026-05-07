@@ -1,10 +1,10 @@
+import threading
 import time
 
 import numpy as np
 
 from rlib.A2C.model import ActorCritic, ActorCritic_LSTM
-from rlib.utils import TrainerConfig
-from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.training import SyncMultiEnvTrainer, TrainerConfig
 from rlib.utils.utils import fastsample, fold_batch, stack_many
 
 
@@ -83,6 +83,29 @@ class A2CLSTMTrainer(SyncMultiEnvTrainer):
     ) -> None:
         super().__init__(envs, model, val_envs, config=config)
         self.prev_hidden = self.model.get_initial_hidden(self.num_envs)
+
+    def _validation_score(self, render: bool) -> float:
+        # Recurrent: dispatch to the agent's own validate_sync /
+        # validate_async so each episode resets the LSTM hidden state.
+        if isinstance(self.val_envs, list):
+            self.validate_rewards = []
+            num_envs = len(self.val_envs)
+            per_env = [self.num_val_episodes // num_envs for _ in range(num_envs)]
+            per_env[-1] += self.num_val_episodes % num_envs
+            threads = [
+                threading.Thread(
+                    daemon=True,
+                    target=self._validate_async,
+                    args=(self.val_envs[i], per_env[i], self.val_steps, render and i == 0),
+                )
+                for i in range(num_envs)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            return float(np.mean(self.validate_rewards)) if self.validate_rewards else 0.0
+        return float(self.validate_sync(render))
 
     def _train_nstep(self):
         batch_size = self.num_envs * self.nsteps

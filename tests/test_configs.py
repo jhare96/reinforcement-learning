@@ -12,8 +12,8 @@ from rlib.networks import A2CConfig, ModelConfig, PPOConfig
 from rlib.PPO import PPOTrainerConfig
 from rlib.RANDAL import RANDALTrainerConfig
 from rlib.RND import RNDTrainerConfig
+from rlib.training import ReturnType, TrainerConfig, TrainMode
 from rlib.Unreal import UnrealTrainerConfig
-from rlib.utils import ReturnType, TrainerConfig, TrainMode
 
 
 class TestModelConfig:

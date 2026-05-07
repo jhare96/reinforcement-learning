@@ -9,8 +9,7 @@ import torch.nn.functional as F
 
 from rlib.A2C.model import ActorCritic
 from rlib.networks import A2CConfig, Model
-from rlib.utils import TrainerConfig
-from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.training import SyncMultiEnvTrainer, TrainerConfig
 from rlib.utils.utils import (
     GAE,
     RunningMeanStd,

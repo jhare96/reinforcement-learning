@@ -3,8 +3,7 @@ import time
 import numpy as np
 
 from rlib.Curiosity.model import Curiosity
-from rlib.utils import TrainerConfig
-from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.training import SyncMultiEnvTrainer, TrainerConfig
 from rlib.utils.utils import RunningMeanStd, fastsample, fold_batch, stack_many
 
 

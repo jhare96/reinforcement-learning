@@ -7,7 +7,7 @@ import numpy as np
 from rlib.RANDAL.model import RANDAL, sign
 from rlib.RND.model import RewardForwardFilter
 from rlib.RND.trainer import RNDTrainerConfig
-from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
+from rlib.training import SyncMultiEnvTrainer
 from rlib.utils.utils import (
     RunningMeanStd,
     fastsample,
