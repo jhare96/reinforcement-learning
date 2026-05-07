@@ -1,283 +1,336 @@
-from rlib.utils.gym_compat import gym, step_compat, reset_compat
-import numpy as np
-from PIL import Image
+"""Environment wrappers used by the rlib agent suite.
+
+All wrappers subclass :class:`rlib.envs.RLEnvBase` and use the **modern
+5-tuple** ``(obs, reward, terminated, truncated, info)`` step API
+together with ``(obs, info)`` reset.  Backend translation (legacy gym
+4-tuple, dm_env, ...) happens once in :mod:`rlib.envs.adapters`; from
+the wrappers' point of view the input env is always canonical.
+
+Wrappers can compose freely (``StackEnv(GreyScaleEnv(env))``).  Each
+wrapper just has to implement ``reset`` / ``step`` against the modern
+contract; everything else (``observation_space``, ``unwrapped``,
+``__getattr__`` forwarding, ``close``, ...) is provided by
+:class:`RLEnvBase`.
+"""
+
+# Code was inspired from or modified from OpenAI baselines
+# https://github.com/openai/baselines/tree/master/baselines/common
+
+from __future__ import annotations
+
 from collections import deque
+from typing import Any
+
+import numpy as np
 import torch
+from PIL import Image
 
-# Code was inspired from or modified from OpenAI baselines https://github.com/openai/baselines/tree/master/baselines/common
-#
-# All wrappers expose the legacy 4-tuple step API ``(obs, reward, done, info)``
-# and a single-observation ``reset()`` regardless of whether the underlying
-# environment is a Gymnasium (5-tuple) or legacy Gym (4-tuple) env. The
-# translation is handled by :mod:`rlib.utils.gym_compat`.
+from rlib.envs import RLEnvBase, wrap
 
 
-def AtariValidate(env):
+def _ensure_rlenv(env: Any) -> RLEnvBase:
+    """Coerce a raw backend env into an :class:`RLEnvBase` if needed."""
+    if isinstance(env, RLEnvBase):
+        return env
+    return wrap(env)
+
+
+def AtariValidate(env: Any) -> RLEnvBase:
     env = FireResetEnv(env)
     env = NoopResetEnv(env, max_op=3000)
     env = StackEnv(env)
     return env
 
-class RescaleEnv(gym.Wrapper):
-    def __init__(self, env, size):
-        gym.Wrapper.__init__(self, env)
+
+class RescaleEnv(RLEnvBase):
+    def __init__(self, env: Any, size: int) -> None:
+        self.env = _ensure_rlenv(env)
         self.size = size
-    
-    def preprocess(self, frame):
-        frame = np.array(Image.fromarray(frame).resize([self.size,self.size]))
-        frame = np.dot(frame[...,:3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
-        return frame[:,:,np.newaxis]
 
-    def step(self, action):
-        obs, reward, done, info = step_compat(self.env, action)
-        return self.preprocess(obs), reward, done, info
-    
-    def reset(self, **kwargs):
-        obs = reset_compat(self.env, **kwargs)
-        return self.preprocess(obs)
+    def preprocess(self, frame: np.ndarray) -> np.ndarray:
+        frame = np.array(Image.fromarray(frame).resize([self.size, self.size]))
+        frame = np.dot(frame[..., :3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
+        return frame[:, :, np.newaxis]
+
+    def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        return self.preprocess(obs), reward, terminated, truncated, info
+
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[np.ndarray, dict]:
+        obs, info = self.env.reset(seed=seed, options=options)
+        return self.preprocess(obs), info
 
 
-class AtariRescale42x42(gym.Wrapper):
-    def __init__(self, env):
-        gym.Wrapper.__init__(self, env)
-    
-    def preprocess(self,frame):
-        frame = np.array(Image.fromarray(frame).resize([84,110]))[110-84:,0:84,:]
-        frame = np.dot(frame[...,:3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
-        frame = np.array(Image.fromarray(frame).resize([42,42])).astype(dtype=np.uint8)
-        return frame[:,:,np.newaxis]
+class AtariRescale42x42(RLEnvBase):
+    def __init__(self, env: Any) -> None:
+        self.env = _ensure_rlenv(env)
 
-    def step(self, action):
-        obs, reward, done, info = step_compat(self.env, action)
-        return self.preprocess(obs), reward, done, info
-    
-    def reset(self, **kwargs):
-        obs = reset_compat(self.env, **kwargs)
-        return self.preprocess(obs)
+    def preprocess(self, frame: np.ndarray) -> np.ndarray:
+        frame = np.array(Image.fromarray(frame).resize([84, 110]))[110 - 84:, 0:84, :]
+        frame = np.dot(frame[..., :3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
+        frame = np.array(Image.fromarray(frame).resize([42, 42])).astype(dtype=np.uint8)
+        return frame[:, :, np.newaxis]
 
-class AtariRescaleEnv(gym.Wrapper):
-    def __init__(self, env):
-        gym.Wrapper.__init__(self, env)
-    
-    def preprocess(self,frame):
-        frame = np.array(Image.fromarray(frame).resize([84,110]))[110-84:,0:84,:]
-        frame = np.dot(frame[...,:3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
-        return frame[:,:,np.newaxis]
+    def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        return self.preprocess(obs), reward, terminated, truncated, info
 
-    def step(self, action):
-        obs, reward, done, info = step_compat(self.env, action)
-        return self.preprocess(obs), reward, done, info
-    
-    def reset(self, **kwargs):
-        obs = reset_compat(self.env, **kwargs)
-        return self.preprocess(obs)
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[np.ndarray, dict]:
+        obs, info = self.env.reset(seed=seed, options=options)
+        return self.preprocess(obs), info
 
-class AtariRescaleColour(gym.Wrapper):
-    def __init__(self, env):
-        gym.Wrapper.__init__(self, env)
-    
-    def preprocess(self,frame):
-        frame = np.array(Image.fromarray(frame).resize([84,110]))[110-84:,0:84,:]
+
+class AtariRescaleEnv(RLEnvBase):
+    def __init__(self, env: Any) -> None:
+        self.env = _ensure_rlenv(env)
+
+    def preprocess(self, frame: np.ndarray) -> np.ndarray:
+        frame = np.array(Image.fromarray(frame).resize([84, 110]))[110 - 84:, 0:84, :]
+        frame = np.dot(frame[..., :3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
+        return frame[:, :, np.newaxis]
+
+    def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        return self.preprocess(obs), reward, terminated, truncated, info
+
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[np.ndarray, dict]:
+        obs, info = self.env.reset(seed=seed, options=options)
+        return self.preprocess(obs), info
+
+
+class AtariRescaleColour(RLEnvBase):
+    def __init__(self, env: Any) -> None:
+        self.env = _ensure_rlenv(env)
+
+    def preprocess(self, frame: np.ndarray) -> np.ndarray:
+        frame = np.array(Image.fromarray(frame).resize([84, 110]))[110 - 84:, 0:84, :]
         return frame
 
-    def step(self, action):
-        obs, reward, done, info = step_compat(self.env, action)
-        return self.preprocess(obs), reward, done, info
-    
-    def reset(self, **kwargs):
-        obs = reset_compat(self.env, **kwargs)
-        return self.preprocess(obs)
+    def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        return self.preprocess(obs), reward, terminated, truncated, info
+
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[np.ndarray, dict]:
+        obs, info = self.env.reset(seed=seed, options=options)
+        return self.preprocess(obs), info
 
 
-class DummyEnv(gym.Wrapper):
-    def __init__(self, env):
-        gym.Wrapper.__init__(self, env)
-    def step(self, action):
-        return step_compat(self.env, action)
-    def reset(self, **kwargs):
-        return reset_compat(self.env, **kwargs)
+class DummyEnv(RLEnvBase):
+    """No-op wrapper. Mostly useful as an explicit conversion to ``RLEnvBase``."""
 
-class NoopResetEnv(gym.Wrapper):
-    def __init__(self, env, max_op=7):
-        gym.Wrapper.__init__(self, env)
+    def __init__(self, env: Any) -> None:
+        self.env = _ensure_rlenv(env)
+
+    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
+        return self.env.step(action)
+
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+        return self.env.reset(seed=seed, options=options)
+
+
+class NoopResetEnv(RLEnvBase):
+    def __init__(self, env: Any, max_op: int = 7) -> None:
+        self.env = _ensure_rlenv(env)
         self.max_op = max_op
 
-    def reset(self, **kwargs):
-        obs = reset_compat(self.env, **kwargs)
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+        obs, info = self.env.reset(seed=seed, options=options)
         noops = np.random.randint(0, self.max_op)
-        for i in range(noops):
-            obs, reward, done, info = step_compat(self.env, 0)
-        return obs
-    
-    def step(self, action):
-        return step_compat(self.env, action)
+        for _ in range(noops):
+            obs, _reward, terminated, truncated, info = self.env.step(0)
+            if terminated or truncated:
+                obs, info = self.env.reset()
+        return obs, info
 
-class ClipRewardEnv(gym.Wrapper):
-    def __init__(self, env):
-        gym.Wrapper.__init__(self, env)
-    
-    def step(self, action):
-        obs, reward, done, info = step_compat(self.env, action)
+    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
+        return self.env.step(action)
+
+
+class ClipRewardEnv(RLEnvBase):
+    def __init__(self, env: Any) -> None:
+        self.env = _ensure_rlenv(env)
+
+    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
+        obs, reward, terminated, truncated, info = self.env.step(action)
         reward = np.clip(reward, -1, 1)
-        return obs, reward, done, info
-    
-    def reset(self, **kwargs):
-        return reset_compat(self.env, **kwargs)
+        return obs, reward, terminated, truncated, info
 
-class NoRewardEnv(gym.Wrapper):
-    def __init__(self, env):
-        gym.Wrapper.__init__(self, env)
-    
-    def step(self, action):
-        obs, reward, done, info = step_compat(self.env, action)
-        return obs, 0, done, info
-    
-    def reset(self, **kwargs):
-        return reset_compat(self.env, **kwargs)
-    
-class FireResetEnv(gym.Wrapper):
-    def __init__(self, env):
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+        return self.env.reset(seed=seed, options=options)
+
+
+class NoRewardEnv(RLEnvBase):
+    def __init__(self, env: Any) -> None:
+        self.env = _ensure_rlenv(env)
+
+    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
+        obs, _reward, terminated, truncated, info = self.env.step(action)
+        return obs, 0, terminated, truncated, info
+
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+        return self.env.reset(seed=seed, options=options)
+
+
+class FireResetEnv(RLEnvBase):
+    def __init__(self, env: Any) -> None:
         """Take action on reset for environments that are fixed until firing."""
-        gym.Wrapper.__init__(self, env)
+        self.env = _ensure_rlenv(env)
         assert env.unwrapped.get_action_meanings()[1] == 'FIRE'
         assert len(env.unwrapped.get_action_meanings()) >= 3
 
-    def reset(self, **kwargs):
-        reset_compat(self.env, **kwargs)
-        obs, _, done, _ = step_compat(self.env, 1)
-        if done:
-            reset_compat(self.env, **kwargs)
-        obs, _, done, _ = step_compat(self.env, 2)
-        if done:
-            reset_compat(self.env, **kwargs)
-        return obs
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+        self.env.reset(seed=seed, options=options)
+        obs, _, terminated, truncated, _ = self.env.step(1)
+        if terminated or truncated:
+            self.env.reset()
+        obs, _, terminated, truncated, info = self.env.step(2)
+        if terminated or truncated:
+            obs, info = self.env.reset()
+        return obs, info
 
-    def step(self, ac):
-        return step_compat(self.env, ac)
+    def step(self, ac: Any) -> tuple[Any, float, bool, bool, dict]:
+        return self.env.step(ac)
 
-class EpisodicLifeEnv(gym.Wrapper):
-    def __init__(self, env):
-        gym.Wrapper.__init__(self,env)
+
+class EpisodicLifeEnv(RLEnvBase):
+    def __init__(self, env: Any) -> None:
+        self.env = _ensure_rlenv(env)
         self.lives = 0
         self.end_of_episode = True
-    
 
-    def step(self, action):
-        obs, reward, done, info = step_compat(self.env, action)
-        self.end_of_episode = done 
+    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        self.end_of_episode = bool(terminated) or bool(truncated)
         lives = self.env.unwrapped.ale.lives()
         if lives < self.lives:
-            done = True
-        self.lives = lives 
-        return obs, reward, done, info
-    
-    def reset(self, **kwargs):
-        if self.end_of_episode:
-            obs = reset_compat(self.env, **kwargs)
-        else:
-            obs, _, _, _ = step_compat(self.env, 0)
-        return obs
+            terminated = True
+        self.lives = lives
+        return obs, reward, terminated, truncated, info
 
-class TimeLimitEnv(gym.Wrapper):
-    def __init__(self, env, time_limit):
-        gym.Wrapper.__init__(self, env)
-        self._time_limit=time_limit
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+        if self.end_of_episode:
+            obs, info = self.env.reset(seed=seed, options=options)
+        else:
+            obs, _, _, _, info = self.env.step(0)
+        return obs, info
+
+
+class TimeLimitEnv(RLEnvBase):
+    def __init__(self, env: Any, time_limit: int) -> None:
+        self.env = _ensure_rlenv(env)
+        self._time_limit = time_limit
         self._step = 0
-    
-    def step(self, action):
-        obs, reward, done, info = step_compat(self.env, action)
+
+    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
+        obs, reward, terminated, truncated, info = self.env.step(action)
         self._step += 1
         if self._step > self._time_limit:
-            done = True
-        return obs, reward, done, info
-    
-    def reset(self, **kwargs):
+            truncated = True
+        return obs, reward, terminated, truncated, info
+
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
         self._step = 0
-        return reset_compat(self.env, **kwargs)
+        return self.env.reset(seed=seed, options=options)
 
 
-
-class StackEnv(gym.Wrapper):
-    def __init__(self, env, k=4):
-        gym.Wrapper.__init__(self, env)
-        #self._stacked_frames = np.array(np.zeros([84,84,k]))
-        self._stacked_frames = deque([], maxlen=k)
+class StackEnv(RLEnvBase):
+    def __init__(self, env: Any, k: int = 4) -> None:
+        self.env = _ensure_rlenv(env)
+        self._stacked_frames: deque[np.ndarray] = deque([], maxlen=k)
         self.k = k
 
-    def step(self, action):
-        obs, reward, done, info = step_compat(self.env, action)
+    def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
+        obs, reward, terminated, truncated, info = self.env.step(action)
         obs = self.stack_frames(obs)
-        return obs, reward, done, info
-    
-    def reset(self, **kwargs):
-        obs = reset_compat(self.env, **kwargs)
-        return self.stack_frames(obs, True)
+        return obs, reward, terminated, truncated, info
 
-    
-    def stack_frames(self,frame,reset=False):
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[np.ndarray, dict]:
+        obs, info = self.env.reset(seed=seed, options=options)
+        return self.stack_frames(obs, True), info
+
+    def stack_frames(self, frame: np.ndarray, reset: bool = False) -> np.ndarray:
         if reset:
-            for i in range(self.k):
+            for _ in range(self.k):
                 self._stacked_frames.append(frame)
         else:
             self._stacked_frames.append(frame)
-        return np.concatenate(self._stacked_frames,axis=2)
+        return np.concatenate(self._stacked_frames, axis=2)
 
 
-class AutoResetEnv(gym.Wrapper):
-    def __init__(self, env):
-        gym.Wrapper.__init__(self, env)
+class AutoResetEnv(RLEnvBase):
+    def __init__(self, env: Any) -> None:
+        self.env = _ensure_rlenv(env)
 
-    def step(self, action):
-        obs, reward, done, info = step_compat(self.env, action)
-        if done:
-            obs = reset_compat(self.env)
-        return obs, reward, done, info
+    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        if terminated or truncated:
+            obs, _info = self.env.reset()
+        return obs, reward, terminated, truncated, info
 
-class ChannelsFirstEnv(gym.Wrapper):
-    def __init__(self, env):
-        gym.Wrapper.__init__(self, env)
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+        return self.env.reset(seed=seed, options=options)
 
-    def step(self, action):
-        obs, reward, done, info = step_compat(self.env, action)
-        return obs.transpose(2, 0, 1), reward, done, info
 
-    def reset(self, **kwargs):
-        obs = reset_compat(self.env, **kwargs)
-        return obs.transpose(2, 0, 1)
+class ChannelsFirstEnv(RLEnvBase):
+    def __init__(self, env: Any) -> None:
+        self.env = _ensure_rlenv(env)
 
-class GreyScaleEnv(gym.Wrapper):
-    def __init__(self, env):
-        gym.Wrapper.__init__(self, env)
-    
-    def preprocess(self,frame):
-        frame = np.dot(frame[...,:3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
-        return frame[:,:,None]
+    def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        return obs.transpose(2, 0, 1), reward, terminated, truncated, info
 
-    def step(self, action):
-        obs, reward, done, info = step_compat(self.env, action)
-        return self.preprocess(obs), reward, done, info
-    
-    def reset(self, **kwargs):
-        obs = reset_compat(self.env, **kwargs)
-        return self.preprocess(obs)
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[np.ndarray, dict]:
+        obs, info = self.env.reset(seed=seed, options=options)
+        return obs.transpose(2, 0, 1), info
 
-class ToTorchEnv(gym.Wrapper):
-    def __init__(self, env, device='cuda:0'):
-        gym.Wrapper.__init__(self, env)
+
+class GreyScaleEnv(RLEnvBase):
+    def __init__(self, env: Any) -> None:
+        self.env = _ensure_rlenv(env)
+
+    def preprocess(self, frame: np.ndarray) -> np.ndarray:
+        frame = np.dot(frame[..., :3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
+        return frame[:, :, None]
+
+    def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        return self.preprocess(obs), reward, terminated, truncated, info
+
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[np.ndarray, dict]:
+        obs, info = self.env.reset(seed=seed, options=options)
+        return self.preprocess(obs), info
+
+
+class ToTorchEnv(RLEnvBase):
+    def __init__(self, env: Any, device: str = 'cuda:0') -> None:
+        self.env = _ensure_rlenv(env)
         self.device = device
 
-    def step(self, action:torch.Tensor):
-        obs, reward, done, info = step_compat(self.env, action.cpu().numpy())
+    def step(
+        self, action: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict]:
+        obs, reward, terminated, truncated, info = self.env.step(action.cpu().numpy())
         obs = torch.from_numpy(obs).float().to(self.device)
         reward = torch.tensor(reward, device=self.device, dtype=torch.float32)
-        done = torch.tensor(done, device=self.device)
-        return obs, reward, done, info
+        terminated_t = torch.tensor(terminated, device=self.device)
+        truncated_t = torch.tensor(truncated, device=self.device)
+        return obs, reward, terminated_t, truncated_t, info
 
-    def reset(self, **kwargs):
-        obs = reset_compat(self.env, **kwargs)
-        return torch.from_numpy(obs).float().to(self.device)
+    def reset(
+        self, *, seed: Any = None, options: Any = None
+    ) -> tuple[torch.Tensor, dict]:
+        obs, info = self.env.reset(seed=seed, options=options)
+        return torch.from_numpy(obs).float().to(self.device), info
 
-def apple_pickgame(env, k=1, grey_scale=False, auto_reset=False, max_steps=1000, channels_first=True):
+
+def apple_pickgame(
+    env: Any,
+    k: int = 1,
+    grey_scale: bool = False,
+    auto_reset: bool = False,
+    max_steps: int | None = 1000,
+    channels_first: bool = True,
+) -> RLEnvBase:
     if auto_reset:
         env = AutoResetEnv(env)
     if max_steps is not None:
@@ -291,20 +344,32 @@ def apple_pickgame(env, k=1, grey_scale=False, auto_reset=False, max_steps=1000,
     return env
 
 
-def AtariEnv(env, k=4, rescale=84, episodic=True, reset=True, clip_reward=True, Noop=True, time_limit=None, channels_first=True, auto_reset=False):
-    ''' Wrapper function for Determinsitic Atari env 
-        assert 'Deterministic' in env.spec.id
-    '''
+def AtariEnv(
+    env: Any,
+    k: int = 4,
+    rescale: int = 84,
+    episodic: bool = True,
+    reset: bool = True,
+    clip_reward: bool = True,
+    Noop: bool = True,
+    time_limit: int | None = None,
+    channels_first: bool = True,
+    auto_reset: bool = False,
+) -> RLEnvBase:
+    """Wrapper function for Deterministic Atari env.
+
+    ``assert 'Deterministic' in env.spec.id``
+    """
     if reset:
         env = FireResetEnv(env)
-    
+
     if Noop:
-        if 'NoFrameskip' in env.spec.id :
+        if 'NoFrameskip' in env.spec.id:
             max_op = 30
         else:
             max_op = 7
-        env = NoopResetEnv(env,max_op)
-    
+        env = NoopResetEnv(env, max_op)
+
     if clip_reward:
         env = ClipRewardEnv(env)
 
@@ -319,15 +384,15 @@ def AtariEnv(env, k=4, rescale=84, episodic=True, reset=True, clip_reward=True, 
         raise ValueError('84 or 42 are valid rescale sizes')
 
     if k > 1:
-        env = StackEnv(env,k)
-    
+        env = StackEnv(env, k)
+
     if time_limit is not None:
         env = TimeLimitEnv(env, time_limit)
-    
+
     if auto_reset:
         env = AutoResetEnv(env)
 
     if channels_first:
         env = ChannelsFirstEnv(env)
-    
+
     return env

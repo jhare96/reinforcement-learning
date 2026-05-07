@@ -8,7 +8,7 @@ the agents they actually use.
 Example:
 
     from rlib import A2C, PPO  # lazy imports of the agent submodules
-    from rlib.utils.gym_compat import gym
+    from rlib.envs import make, RLEnv  # canonical, backend-agnostic env API
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING
 
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 
 # Mapping of attribute name -> dotted submodule path
 _LAZY_SUBMODULES = {
@@ -30,6 +30,7 @@ _LAZY_SUBMODULES = {
     "Unreal": "rlib.Unreal",
     "DAAC": "rlib.DAAC",
     "VIN": "rlib.VIN",
+    "envs": "rlib.envs",
     "networks": "rlib.networks",
     "utils": "rlib.utils",
 }
@@ -50,7 +51,7 @@ def __dir__():
 if TYPE_CHECKING:  # pragma: no cover - type checkers only
     from rlib import A2C, A3C, PPO, DDQN, RND, RANDAL  # noqa: F401
     from rlib import Curiosity, Unreal, DAAC, VIN  # noqa: F401
-    from rlib import networks, utils  # noqa: F401
+    from rlib import envs, networks, utils  # noqa: F401
 
 
 __all__ = ["__version__", *list(_LAZY_SUBMODULES.keys())]

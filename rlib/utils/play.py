@@ -1,4 +1,6 @@
-from rlib.utils.gym_compat import gym, step_compat, reset_compat
+from rlib.envs import make as make_env, wrap as wrap_env
+from rlib.envs.base import RLVecEnv
+import gymnasium as gym
 import pygame
 import matplotlib.pyplot as plt
 #from gym.utils import play
@@ -61,7 +63,8 @@ def play(env, transpose=True, fps=30, zoom=None, callback=None, keys_to_action=N
             }
         If None, default key_to_action mapping for that env is used, if provided.
     """
-    reset_compat(env)
+    rl_env = wrap_env(env)
+    rl_env.reset()
     rendered=env.render( mode='rgb_array')
 
     if keys_to_action is None:
@@ -89,11 +92,12 @@ def play(env, transpose=True, fps=30, zoom=None, callback=None, keys_to_action=N
     while running:
         if env_done:
             env_done = False
-            obs = reset_compat(env)
+            obs, _info = rl_env.reset()
         else:
             action = keys_to_action.get(tuple(sorted(pressed_keys)), 0)
             prev_obs = obs
-            obs, rew, env_done, info = step_compat(env, action)
+            obs, rew, terminated, truncated, info = rl_env.step(action)
+            env_done = RLVecEnv.merge_done(terminated, truncated)
             if callback is not None:
                 callback(prev_obs, obs, action, rew, env_done, info)
         if obs is not None:
@@ -156,7 +160,7 @@ class PlayPlot(object):
         plt.pause(0.000001)
 
 if __name__ == '__main__':
-    env = gym.make('MountainCar-v0')
+    env = make_env('MountainCar-v0')
     def callback(obs_t, obs_tp1, action, rew, done, info):
         return [rew,]
     plotter = PlayPlot(callback, 30 * 5, ["reward"])

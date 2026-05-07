@@ -4,6 +4,65 @@ All notable changes to **rlib** are documented in this file. The format is
 loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [3.1.0] - Unreleased
+
+This release replaces the awkward `step_compat` / `reset_compat` free-function
+shim with a generic, scaling environment abstraction and bumps the minimum
+Python to 3.10.
+
+### Added
+
+- **`rlib.envs` package** — the new canonical, backend-agnostic environment
+  layer. Public surface:
+  - `RLEnv` — `typing.Protocol` (runtime-checkable) describing the modern
+    5-tuple `(obs, reward, terminated, truncated, info)` step / `(obs, info)`
+    reset contract. Use it for type annotations.
+  - `RLEnvBase` — abstract base class providing helpful defaults
+    (`unwrapped`, `__getattr__` forwarding, context-manager support,
+    `render`, `close`, `spec`, ...). Adapters and wrappers shipped with
+    rlib inherit from it.
+  - `RLVecEnv` — abstract base for vectorised env runners. The
+    `merge_done(terminated, truncated)` and `merge_info(...)` helpers are
+    the **single canonical place** in the codebase that collapses the
+    5-tuple into the legacy `done` flag, so future work on truncation
+    handling has one place to change.
+  - `make(env_or_id, *, backend="auto", **kwargs)` — single entry point that
+    wraps a string env id or an already-constructed env into an
+    `RLEnvBase`.
+  - `wrap(env, *, backend="auto")` — wrap a pre-built env.
+  - `register_backend(predicate, adapter_cls, ...)` — extension hook so
+    users can teach rlib about new env types (`dm_env`, PettingZoo
+    single-agent slices, EnvPool, in-house simulators, ...) **without**
+    modifying the library.
+- **Backend adapters** under `rlib.envs.adapters`:
+  - `GymnasiumAdapter` — pass-through for the modern Gymnasium API.
+  - `LegacyGymAdapter` — translates the legacy 4-tuple into the canonical
+    5-tuple, inferring `truncated` from `info["TimeLimit.truncated"]`.
+
+### Changed
+
+- **Python 3.10+ required** (was 3.8+). New code uses PEP 604 `X | Y`
+  union syntax and modern built-in generic aliases.
+- `rlib.utils.wrappers` rewritten to subclass `RLEnvBase` and use the
+  modern 5-tuple internally. All wrappers are now backend-agnostic
+  through a single `_ensure_rlenv()` coercion at the wrapper boundary.
+- `rlib.utils.VecEnv` (`BatchEnv`, `DummyBatchEnv`, `ChunkEnv`) now
+  inherit from `RLVecEnv` and consume the wrappers' 5-tuple, collapsing
+  to the legacy 4-tuple at this single boundary so existing agent
+  rollouts (`A2C`, `PPO`, `RND`, ...) keep working without changes.
+- `rlib.utils.SyncMultiEnvTrainer._validate_async`, `rlib.utils.play`
+  and `rlib.utils.random_agent` use `rlib.envs.wrap` / the modern
+  5-tuple directly.
+
+### Deprecated
+
+- `rlib.utils.gym_compat.step_compat` and `reset_compat` — still
+  callable for backward compatibility but emit a `DeprecationWarning`
+  and forward to `rlib.envs.wrap`. Will be removed in a future release.
+- The `from rlib.utils.gym_compat import gym` import still works
+  (re-exports the active backend) but is superseded by
+  `from rlib.envs import make, wrap`.
+
 ## [3.0.0] - 2026-05-07
 
 This release modernises the library's packaging, dependencies and developer
