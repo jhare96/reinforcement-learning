@@ -142,15 +142,11 @@ class MaskedRNN(torch.nn.Module):
     ''' dynamic masked *hidden state* RNN for sequences that reset part way through an observation 
         e.g. A2C 
         args :
-            cell - cell of type tf.nn.rnn_cell
+            cell - a recurrent cell module (e.g. ``torch.nn.LSTMCell`` or ``torch.nn.GRUCell``)
             X - tensor of rank [time, batch, hidden] if time major == True (Default); or [batch, time, hidden] if time major == False
-            hidden_init - tensor or placeholder of intial cell hidden state
-            mask - tensor or placeholder of length time, for hidden state masking e.g. [True, False, False] will mask first hidden state
-            parallel_iterations - number of parallel iterations to run RNN over
-            swap_memory - bool flag to swap memory between GPU and CPU
-            time_major - bool flag to determine order of indices of input tensor 
-            scope - tf variable_scope of dynamic RNN loop
-            trainable - bool flag whether to perform backpropagation to RNN cell during while loop
+            hidden_init - tensor of initial cell hidden state
+            mask - boolean tensor of length time, used for hidden state masking e.g. [True, False, False] will mask the first hidden state
+            time_major - bool flag to determine order of indices of input tensor
     '''
     def __init__(self, cell, time_major=True):
         super(MaskedRNN, self).__init__()

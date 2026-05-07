@@ -145,6 +145,7 @@ cython_debug/
 *.pages
 *.rtf
 *.txt
+!requirements*.txt
 *.wpd
 *.wps
 

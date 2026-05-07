@@ -1,0 +1,31 @@
+site_name: rlib
+site_description: A small PyTorch reinforcement learning library
+site_author: Joshua Hare
+repo_url: https://github.com/jhare96/reinforcement-learning
+repo_name: jhare96/reinforcement-learning
+edit_uri: edit/master/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+
+nav:
+  - Home: index.md
+  - Agents: agents.md
+  - Environments: environments.md
+  - Wrappers: wrappers.md
+  - Changelog: ../CHANGELOG.md
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences

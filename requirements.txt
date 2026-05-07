@@ -1,0 +1,13 @@
+# Runtime dependencies for rlib.
+#
+# These mirror the `dependencies` table in pyproject.toml and are provided for
+# users who prefer `pip install -r requirements.txt` (e.g. Docker builds).
+#
+# To install the package together with optional extras, prefer:
+#   pip install -e ".[atari,classic]"
+
+torch>=1.13
+numpy>=1.21
+gymnasium>=0.29
+Pillow>=9.0
+tensorboard>=2.10
