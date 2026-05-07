@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 from rlib.A2C.model import ActorCritic
 from rlib.networks import A2CConfig, Model
-from rlib.utils import TrainerConfig
+from rlib.utils import UnrealTrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import (
     GAE,
@@ -219,33 +219,13 @@ class UnrealTrainer(SyncMultiEnvTrainer):
         envs,
         model: UnrealA2C2,
         val_envs,
-        config: TrainerConfig,
-        *,
-        normalise_obs: bool = True,
-        replay_length: int = 2000,
+        config: UnrealTrainerConfig,
     ):
         super().__init__(envs, model, val_envs, config=config)
 
-        self.replay = deque([], maxlen=replay_length)  # replay length per actor
+        self.replay = deque([], maxlen=config.replay_length)  # replay length per actor
         self.action_size = self.model.action_size
-
-        hyper_paras = {
-            'learning_rate': model.lr,
-            'grad_clip': model.grad_clip,
-            'nsteps': config.nsteps,
-            'num_workers': self.num_envs,
-            'total_steps': self.total_steps,
-            'entropy_coefficient': model.entropy_coeff,
-            'value_coefficient': model.value_coeff,
-            'gamma': self.gamma,
-            'lambda': self.lambda_,
-        }
-
-        if config.log_scalars:
-            filename = config.log_dir + '/hyperparameters.txt'
-            self.save_hyperparameters(filename, **hyper_paras)
-
-        self.normalise_obs = normalise_obs
+        self.normalise_obs = config.normalise_obs
 
         if self.normalise_obs:
             self.obs_running = RunningMeanStd()

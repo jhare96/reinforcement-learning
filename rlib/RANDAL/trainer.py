@@ -5,7 +5,7 @@ import numpy as np
 
 from rlib.RANDAL.model import RANDAL, sign
 from rlib.RND.model import RewardForwardFilter
-from rlib.utils import TrainerConfig
+from rlib.utils import RANDALTrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import (
     RunningMeanStd,
@@ -23,54 +23,21 @@ class RANDALTrainer(SyncMultiEnvTrainer):
         envs,
         model: RANDAL,
         val_envs,
-        config: TrainerConfig,
-        *,
-        gamma_intr: float = 0.99,
-        init_obs_steps: int = 600,
-        num_epochs: int = 4,
-        num_minibatches: int = 4,
-        replay_length: int = 2000,
-        norm_pixel_reward: bool = True,
+        config: RANDALTrainerConfig,
     ):
         super().__init__(envs, model, val_envs, config=config)
 
-        self.gamma_intr = gamma_intr
-        self.num_epochs = num_epochs
-        self.num_minibatches = num_minibatches
+        self.gamma_intr = config.gamma_intr
+        self.num_epochs = config.num_epochs
+        self.num_minibatches = config.num_minibatches
+        self.init_obs_steps = config.init_obs_steps
+        self.replay_length = config.replay_length
+        self.normalise_obs = config.norm_pixel_reward
         self.pred_prob = 1 / (self.num_envs / 32.0)
         self.state_obs = RunningMeanStd()
-        self.forward_filter = RewardForwardFilter(gamma_intr)
+        self.forward_filter = RewardForwardFilter(config.gamma_intr)
         self.intr_rolling = RunningMeanStd()
-        self.init_obs_steps = init_obs_steps
-        self.replay = deque([], maxlen=replay_length)  # replay length per actor
-        self.normalise_obs = norm_pixel_reward
-        self.replay_length = replay_length
-
-        hyper_paras = {
-            'learning_rate': model.lr,
-            'grad_clip': model.grad_clip,
-            'nsteps': self.nsteps,
-            'num_workers': self.num_envs,
-            'total_steps': self.total_steps,
-            'entropy_coefficient': model.entropy_coeff,
-            'value_coefficient': 1.0,
-            'intrinsic_value_coefficient': model.intr_coeff,
-            'extrinsic_value_coefficient': model.extr_coeff,
-            'init_obs_steps': init_obs_steps,
-            'gamma_intrinsic': self.gamma_intr,
-            'gamma_extrinsic': self.gamma,
-            'lambda': self.lambda_,
-            'predictor_dropout_probability': self.pred_prob,
-            'replay_length': replay_length,
-            'normalise_pixel_reward': norm_pixel_reward,
-            'replay_value_coefficient': model.VR,
-            'pixel_control_coefficient': model.PC,
-            'reward_prediction_coefficient': model.RP,
-        }
-
-        if config.log_scalars:
-            filename = config.log_dir + '/hyperparameters.txt'
-            self.save_hyperparameters(filename, **hyper_paras)
+        self.replay = deque([], maxlen=config.replay_length)  # replay length per actor
 
     def populate_memory(self):
         for _t in range(self.replay_length // self.nsteps):

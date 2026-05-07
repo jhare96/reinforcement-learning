@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import os
 import threading
@@ -83,9 +84,32 @@ class SyncMultiEnvTrainer:
         if config.log_scalars:
             self.train_log_dir = config.log_dir + '/train'
             self.train_writer = SummaryWriter(self.train_log_dir)
+            self._log_hyperparameters()
 
         if not os.path.exists(self.model_dir) and config.save_freq > 0:
             os.makedirs(self.model_dir)
+
+    def _log_hyperparameters(self) -> None:
+        """Dump the trainer + model configs to ``<log_dir>/hyperparameters.txt``.
+
+        Uses :func:`dataclasses.asdict` so adding a field to any
+        ``*TrainerConfig`` or ``*ModelConfig`` automatically shows up
+        in the log without touching agent code.  Subclasses can override
+        this hook if they want to add fields not present on the configs
+        (e.g. derived values like ``num_workers``).
+        """
+        if not os.path.exists(self.config.log_dir):
+            os.makedirs(self.config.log_dir, exist_ok=True)
+        params: dict[str, Any] = {
+            **dataclasses.asdict(self.config),
+            'num_workers': self.num_envs,
+        }
+        if hasattr(self.model, 'config'):
+            params.update(
+                {f'model.{k}': v for k, v in dataclasses.asdict(self.model.config).items()}
+            )
+        filename = self.config.log_dir + '/hyperparameters.txt'
+        self.save_hyperparameters(filename, **params)
 
     def __del__(self):
         self.env.close()

@@ -32,32 +32,9 @@ class CuriosityTrainer(SyncMultiEnvTrainer):
         config: TrainerConfig,
     ):
         super().__init__(envs, model, val_envs, config=config)
-
         self.state_obs = RollingObs()
         self.state_mean = None
         self.state_std = None
-
-        hyper_paras = {
-            'learning_rate': model.lr,
-            'learning_rate_final': model.lr_final,
-            'lr_decay_steps': model.decay_steps,
-            'grad_clip': model.grad_clip,
-            'nsteps': self.nsteps,
-            'num_workers': self.num_envs,
-            'total_steps': self.total_steps,
-            'entropy_coefficient': 0.01,
-            'value_coefficient': 0.5,
-            'reward_scale': model.reward_scale,
-            'forward_model_scale': model.forward_coeff,
-            'policy_importance': model.policy_importance,
-            'gamma': self.gamma,
-            'lambda': self.lambda_,
-        }
-
-        if self.log_scalars:
-            filename = config.log_dir + '/hyperparameters.txt'
-            self.save_hyperparameters(filename, **hyper_paras)
-
         self.lambda_ = 0.95
 
     def init_state_obs(self, num_steps):

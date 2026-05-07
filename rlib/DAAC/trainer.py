@@ -3,7 +3,7 @@ import time
 import numpy as np
 
 from rlib.DAAC.model import DAAC
-from rlib.utils import TrainerConfig
+from rlib.utils import DAACTrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import fastsample, fold_many, stack_many
 
@@ -16,40 +16,12 @@ class DAACTrainer(SyncMultiEnvTrainer):
         envs,
         model: DAAC,
         val_envs,
-        config: TrainerConfig,
-        *,
-        policy_epochs: int = 1,
-        value_epochs: int = 9,
-        num_minibatches: int = 8,
+        config: DAACTrainerConfig,
     ):
         super().__init__(envs, model, val_envs, config=config)
-
-        self.policy_epochs = policy_epochs
-        self.value_epochs = value_epochs
-        self.num_minibatches = num_minibatches
-
-        hyper_paras = {
-            'learning_rate': model.lr,
-            'learning_rate_final': model.lr_final,
-            'lr_decay_steps': model.decay_steps,
-            'grad_clip': model.grad_clip,
-            'nsteps': self.nsteps,
-            'num_workers': self.num_envs,
-            'total_steps': self.total_steps,
-            'entropy_coefficient': self.model.entropy_coeff,
-            'advantage_coefficient': self.model.adv_coeff,
-            'value_coefficient': 1.0,
-            'policy_clip': self.model.policy_clip,
-            'num_minibatches': self.num_minibatches,
-            'policy_epochs': self.policy_epochs,
-            'value_epochs': self.value_epochs,
-            'gamma': self.gamma,
-            'lambda': self.lambda_,
-        }
-
-        if config.log_scalars:
-            filename = config.log_dir + '/hyperparameters.txt'
-            self.save_hyperparameters(filename, **hyper_paras)
+        self.policy_epochs = config.policy_epochs
+        self.value_epochs = config.value_epochs
+        self.num_minibatches = config.num_minibatches
 
     def _train_nstep(self):
         batch_size = self.num_envs * self.nsteps

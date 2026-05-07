@@ -23,7 +23,7 @@ import torch
 from rlib.networks import PPOConfig
 from rlib.networks.networks import UniverseCNN
 from rlib.RND import RND, PredictorCNN, RNDTrainer
-from rlib.utils import TrainerConfig
+from rlib.utils import RNDTrainerConfig
 from rlib.utils.VecEnv import BatchEnv
 from rlib.utils.wrappers import AtariEnv
 
@@ -83,7 +83,7 @@ def main() -> None:
         envs=train_envs,
         model=model,
         val_envs=val_envs,
-        config=TrainerConfig(
+        config=RNDTrainerConfig(
             total_steps=int(1e7),
             nsteps=nsteps,
             validate_freq=int(5e5),

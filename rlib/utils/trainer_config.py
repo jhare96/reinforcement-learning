@@ -1,9 +1,9 @@
-"""Frozen dataclass config for :class:`rlib.utils.SyncMultiEnvTrainer`.
+"""Frozen dataclass configs for :class:`rlib.utils.SyncMultiEnvTrainer`.
 
-The trainer takes 17 hyperparameter kwargs in its ``__init__``, all
+The trainer takes ~17 hyperparameter kwargs in its ``__init__``, all
 forwarded by every concrete trainer subclass via
-``super().__init__(**...)``.  :class:`TrainerConfig` collects them into
-a single immutable value object so:
+``super().__init__(...)``.  :class:`TrainerConfig` collects them into a
+single immutable value object so:
 
 * concrete trainers can declare just the few kwargs they actually
   customise and forward the rest as a single ``config`` argument;
@@ -11,10 +11,10 @@ a single immutable value object so:
 * callers can build presets (Atari, classic-control, sparse-reward) and
   share them across agents.
 
-Backward compatibility: :class:`SyncMultiEnvTrainer.__init__` still
-accepts every legacy keyword.  When ``config`` is omitted the kwargs
-are bundled into a fresh dataclass internally; when ``config`` is given
-the legacy kwargs are ignored.
+Trainers that need extra agent-specific hyperparameters (PPO's
+``num_epochs``/``num_minibatches``, RND's intrinsic-reward gamma, DDQN's
+ε-greedy schedule, etc.) ship their own subclass of :class:`TrainerConfig`
+that adds those fields — see :class:`PPOTrainerConfig` and friends below.
 """
 
 from __future__ import annotations
@@ -22,7 +22,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-__all__ = ["TrainerConfig", "TrainMode", "ReturnType"]
+__all__ = [
+    "DAACTrainerConfig",
+    "DDQNTrainerConfig",
+    "PPOTrainerConfig",
+    "RANDALTrainerConfig",
+    "RNDTrainerConfig",
+    "ReturnType",
+    "TrainerConfig",
+    "TrainMode",
+    "UnrealTrainerConfig",
+]
 
 
 TrainMode = Literal["nstep", "onestep"]
@@ -86,3 +96,69 @@ class TrainerConfig:
             raise ValueError(
                 f"return_type must be 'nstep', 'lambda' or 'GAE', got {self.return_type!r}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Per-trainer config subclasses
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PPOTrainerConfig(TrainerConfig):
+    """Hyperparameters for :class:`rlib.PPO.PPOTrainer`."""
+
+    num_epochs: int = 4
+    num_minibatches: int = 4
+
+
+@dataclass(frozen=True)
+class RNDTrainerConfig(TrainerConfig):
+    """Hyperparameters for :class:`rlib.RND.RNDTrainer`.
+
+    ``gamma`` is reused as the *extrinsic* discount; the intrinsic
+    discount is the new ``gamma_intr`` field.
+    """
+
+    gamma_intr: float = 0.99
+    init_obs_steps: int = 600
+    num_epochs: int = 4
+    num_minibatches: int = 4
+
+
+@dataclass(frozen=True)
+class RANDALTrainerConfig(RNDTrainerConfig):
+    """Hyperparameters for :class:`rlib.RANDAL.RANDALTrainer`.
+
+    Inherits the RND extra fields and adds the UNREAL replay buffer
+    knobs.
+    """
+
+    replay_length: int = 2000
+    norm_pixel_reward: bool = True
+
+
+@dataclass(frozen=True)
+class DAACTrainerConfig(TrainerConfig):
+    """Hyperparameters for :class:`rlib.DAAC.DAACTrainer`."""
+
+    policy_epochs: int = 1
+    value_epochs: int = 9
+    num_minibatches: int = 8
+
+
+@dataclass(frozen=True)
+class DDQNTrainerConfig(TrainerConfig):
+    """Hyperparameters for :class:`rlib.DDQN.SyncDDQN`."""
+
+    epsilon_start: float = 1.0
+    epsilon_final: float = 0.01
+    epsilon_steps: float = 1e6
+    epsilon_test: float = 0.01
+
+
+@dataclass(frozen=True)
+class UnrealTrainerConfig(TrainerConfig):
+    """Hyperparameters for :class:`rlib.Unreal.UnrealTrainer` (feed-forward)."""
+
+    normalise_obs: bool = True
+    replay_length: int = 2000

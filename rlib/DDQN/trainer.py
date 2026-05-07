@@ -1,9 +1,7 @@
-from collections import OrderedDict
-
 import numpy as np
 
 from rlib.DDQN.model import DQN
-from rlib.utils import TrainerConfig
+from rlib.utils import DDQNTrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import fold_batch, one_hot, unfold_batch
 from rlib.utils.wrappers import FireResetEnv, StackEnv
@@ -19,49 +17,20 @@ class SyncDDQN(SyncMultiEnvTrainer):
         target_model: DQN,
         val_envs,
         action_size,
-        config: TrainerConfig,
-        *,
-        epsilon_start: float = 1,
-        epsilon_final: float = 0.01,
-        epsilon_steps: float = 1e6,
-        epsilon_test: float = 0.01,
+        config: DDQNTrainerConfig,
     ):
         super().__init__(envs=envs, model=model, val_envs=val_envs, config=config)
 
         self.target_model = self.TargetQ = target_model
         self.Q = self.model  # more readable alias
-        self.epsilon = np.array([epsilon_start], dtype=np.float64)
-        self.epsilon_final = epsilon_final
-        self.epsilon_steps = epsilon_steps
+        self.epsilon = np.array([config.epsilon_start], dtype=np.float64)
+        self.epsilon_final = config.epsilon_final
+        self.epsilon_steps = config.epsilon_steps
         self.schedule = self.linear_schedule(
-            self.epsilon, epsilon_final, epsilon_steps // self.num_envs
+            self.epsilon, config.epsilon_final, config.epsilon_steps // self.num_envs
         )
-        self.epsilon_test = np.array(epsilon_test, dtype=np.float64)
-
+        self.epsilon_test = np.array(config.epsilon_test, dtype=np.float64)
         self.action_size = action_size
-
-        hyper_paras = {
-            'learning_rate': self.model.lr,
-            'learning_rate_final': self.model.lr_final,
-            'lr_decay_steps': self.model.decay_steps,
-            'grad_clip': self.model.grad_clip,
-            'nsteps': self.nsteps,
-            'num_workers': self.num_envs,
-            'return type': self.return_type,
-            'total_steps': self.total_steps,
-            'gamma': self.gamma,
-            'lambda': self.lambda_,
-            'epsilon_start': self.epsilon,
-            'epsilon_final': self.epsilon_final,
-            'epsilon_steps': self.epsilon_steps,
-            'update_freq': config.update_target_freq,
-        }
-
-        hyper_paras = OrderedDict(hyper_paras)
-
-        if self.log_scalars:
-            filename = config.log_dir + '/hyperparameters.txt'
-            self.save_hyperparameters(filename, **hyper_paras)
 
     class linear_schedule:
         def __init__(self, epsilon, epsilon_final, num_steps=1000000):

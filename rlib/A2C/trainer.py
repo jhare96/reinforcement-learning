@@ -20,25 +20,6 @@ class A2CTrainer(SyncMultiEnvTrainer):
     ) -> None:
         super().__init__(envs, model, val_envs, config=config)
 
-        hyperparas = {
-            'learning_rate': model.lr,
-            'learning_rate_final': model.lr_final,
-            'lr_decay_steps': model.decay_steps,
-            'grad_clip': model.grad_clip,
-            'nsteps': config.nsteps,
-            'num_workers': self.num_envs,
-            'total_steps': config.total_steps,
-            'entropy_coefficient': model.entropy_coeff,
-            'value_coefficient': model.value_coeff,
-            'return type': config.return_type,
-            'gamma': config.gamma,
-            'lambda': config.lambda_,
-        }
-
-        if config.log_scalars:
-            filename = config.log_dir + '/' + 'hyperparameters.txt'
-            self.save_hyperparameters(filename, **hyperparas)
-
     def get_action(self, state):
         policy, value = self.model.evaluate(state)
         action = int(fastsample(policy))
@@ -101,26 +82,7 @@ class A2CLSTMTrainer(SyncMultiEnvTrainer):
         config: TrainerConfig,
     ) -> None:
         super().__init__(envs, model, val_envs, config=config)
-
         self.prev_hidden = self.model.get_initial_hidden(self.num_envs)
-
-        hyper_params = {
-            'learning_rate': model.lr,
-            'learning_rate_final': model.lr_final,
-            'lr_decay_steps': model.decay_steps,
-            'grad_clip': model.grad_clip,
-            'nsteps': self.nsteps,
-            'num_workers': self.num_envs,
-            'total_steps': self.total_steps,
-            'entropy_coefficient': model.entropy_coeff,
-            'value_coefficient': model.value_coeff,
-            'gamma': self.gamma,
-            'lambda': self.lambda_,
-        }
-
-        if self.log_scalars:
-            filename = config.log_dir + '/hyperparameters.txt'
-            self.save_hyperparameters(filename, **hyper_params)
 
     def _train_nstep(self):
         batch_size = self.num_envs * self.nsteps

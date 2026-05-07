@@ -389,24 +389,6 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
             zeros, zeros, self.action_size + 1
         )  # start with action 0 and reward 0
 
-        hyper_paras = {
-            'learning_rate': model.lr,
-            'learning_rate_final': model.lr_final,
-            'lr_decay_steps': model.decay_steps,
-            'grad_clip': model.grad_clip,
-            'nsteps': config.nsteps,
-            'num_workers': self.num_envs,
-            'total_steps': self.total_steps,
-            'entropy_coefficient': model.entropy_coeff,
-            'value_coefficient': 0.5,
-            'gamma': self.gamma,
-            'lambda': self.lambda_,
-        }
-
-        if config.log_scalars:
-            filename = config.log_dir + '/hyperparameters.txt'
-            self.save_hyperparameters(filename, **hyper_paras)
-
     def populate_memory(self):
         for _t in range(2000 // self.nsteps):
             self.rollout()

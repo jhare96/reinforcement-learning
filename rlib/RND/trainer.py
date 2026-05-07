@@ -3,7 +3,7 @@ import time
 import numpy as np
 
 from rlib.RND.model import RND, RewardForwardFilter
-from rlib.utils import TrainerConfig
+from rlib.utils import RNDTrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import RunningMeanStd, fastsample, fold_many, stack_many
 
@@ -16,44 +16,18 @@ class RNDTrainer(SyncMultiEnvTrainer):
         envs,
         model: RND,
         val_envs,
-        config: TrainerConfig,
-        *,
-        gamma_intr: float = 0.99,
-        init_obs_steps: int = 600,
-        num_epochs: int = 4,
-        num_minibatches: int = 4,
+        config: RNDTrainerConfig,
     ):
         super().__init__(envs, model, val_envs, config=config)
 
-        self.gamma_intr = gamma_intr
-        self.num_epochs = num_epochs
-        self.num_minibatches = num_minibatches
+        self.gamma_intr = config.gamma_intr
+        self.num_epochs = config.num_epochs
+        self.num_minibatches = config.num_minibatches
+        self.init_obs_steps = config.init_obs_steps
         self.pred_prob = 1 / (self.num_envs / 32.0)
         self.state_obs = RunningMeanStd()
-        self.forward_filter = RewardForwardFilter(gamma_intr)
+        self.forward_filter = RewardForwardFilter(config.gamma_intr)
         self.intr_rolling = RunningMeanStd()
-        self.init_obs_steps = init_obs_steps
-
-        hyper_paras = {
-            'learning_rate': model.lr,
-            'grad_clip': model.grad_clip,
-            'nsteps': self.nsteps,
-            'num_workers': self.num_envs,
-            'total_steps': self.total_steps,
-            'entropy_coefficient': 0.001,
-            'value_coefficient': 1.0,
-            'intrinsic_value_coefficient': model.intr_coeff,
-            'extrinsic_value_coefficient': model.extr_coeff,
-            'init_obs_steps': init_obs_steps,
-            'gamma_intrinsic': self.gamma_intr,
-            'gamma_extrinsic': self.gamma,
-            'lambda': self.lambda_,
-            'predictor_dropout_probability': self.pred_prob,
-        }
-
-        if config.log_scalars:
-            filename = config.log_dir + '/hyperparameters.txt'
-            self.save_hyperparameters(filename, **hyper_paras)
 
     def init_state_obs(self, num_steps):
         states = 0
