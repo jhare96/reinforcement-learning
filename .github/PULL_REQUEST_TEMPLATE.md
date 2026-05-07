@@ -21,6 +21,4 @@ e.g. "Trained PPO on CartPole-v1 for 100k steps and observed convergence." -->
 - [ ] I have read [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 - [ ] I added or updated documentation where applicable (README, `docs/`).
 - [ ] I added an entry to `CHANGELOG.md` under *Unreleased* (for user-facing changes).
-- [ ] I verified that the change works against **Gymnasium**, and (if I touched
-      any wrappers / env runners) that it still works with the legacy `gym`
-      package via `rlib.utils.gym_compat`.
+- [ ] I verified that the change works against **Gymnasium**.

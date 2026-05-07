@@ -2,7 +2,7 @@ import torch
 from torch._C import device
 import torch.nn.functional as F
 import numpy as np
-from rlib.utils.gym_compat import gym
+import gymnasium as gym
 import os, time
 from collections import deque
 

@@ -51,8 +51,8 @@ build on the [`rlib.envs`](rlib/envs/) package:
   `register_backend(predicate, adapter_cls)` so `rlib.envs.make` /
   `rlib.envs.wrap` will auto-pick it up.
 
-The legacy `rlib.utils.gym_compat.step_compat` / `reset_compat` helpers are
-deprecated and emit a `DeprecationWarning`; do not call them in new code.
+The legacy `rlib.utils.gym_compat` shim has been removed; use
+`rlib.envs.wrap` (or just `import gymnasium as gym`) in new code.
 
 ## Submitting a pull request
 

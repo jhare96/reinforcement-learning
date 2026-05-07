@@ -2,7 +2,7 @@ from numpy.core.fromnumeric import size
 import torch
 import torch.nn.functional as F
 import numpy as np
-from rlib.utils.gym_compat import gym
+import gymnasium as gym
 import os, time, datetime
 
 from rlib.utils.utils import fastsample, fold_batch, one_hot, RunningMeanStd, stack_many, totorch, totorch_many, tonumpy, GAE

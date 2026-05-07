@@ -21,7 +21,7 @@ which introduced the **RANDAL** agent included here.
 
 ```
 ┌───────────────────────────┐      ┌────────────────────────────────┐
-│   gymnasium / gym envs    │◄────►│  rlib.utils.gym_compat shim    │
+│   gymnasium / gym envs    │◄────►│  rlib.envs adapters            │
 └───────────────────────────┘      └────────────────────────────────┘
                                               │
                                               ▼

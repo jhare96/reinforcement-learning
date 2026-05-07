@@ -47,8 +47,7 @@ pip install -e ".[docs]"      # Build the local documentation
 OpenAI Gym). The :mod:`rlib.envs` package provides a backend-agnostic env
 abstraction (`RLEnv` Protocol, `RLEnvBase` ABC, `make`/`wrap`/`register_backend`)
 so the library also works against legacy `gym` and is easy to extend to other
-gym-like backends. The previous `rlib.utils.gym_compat` shim is now deprecated
-in favour of `rlib.envs.wrap` but still works for one release cycle.
+gym-like backends.
 
 A `Dockerfile` is provided for fully-reproducible setups (see below).
 
@@ -61,7 +60,7 @@ for the runnable version):
 import torch
 from rlib.A2C import A2C, ActorCritic
 from rlib.utils.VecEnv import DummyBatchEnv
-from rlib.utils.gym_compat import gym
+import gymnasium as gym
 
 
 class MLP(torch.nn.Module):

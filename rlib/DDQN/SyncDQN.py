@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 import numpy as np 
-from rlib.utils.gym_compat import gym
+import gymnasium as gym
 import threading
 import time, datetime
 from collections import OrderedDict

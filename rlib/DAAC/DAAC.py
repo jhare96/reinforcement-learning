@@ -1,4 +1,4 @@
-from rlib.utils.gym_compat import gym
+import gymnasium as gym
 import numpy as np
 import time
 import datetime

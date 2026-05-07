@@ -1,6 +1,7 @@
 """Generic, backend-agnostic environment abstraction for rlib.
 
-This subpackage replaces the previous ``rlib.utils.gym_compat`` shim.
+This subpackage replaces the previous ``rlib.utils.gym_compat`` shim
+(now removed).
 It exposes a single canonical environment contract — the modern
 5-tuple Gymnasium API — together with one thin adapter per supported
 backend.  See :mod:`rlib.envs.base` for the design rationale.

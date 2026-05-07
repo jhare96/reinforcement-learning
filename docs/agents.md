@@ -23,7 +23,7 @@ and therefore share a common `train()` / `validate()` interface.
 ```python
 from rlib.A2C import A2C, ActorCritic
 from rlib.utils.VecEnv import DummyBatchEnv
-from rlib.utils.gym_compat import gym
+import gymnasium as gym
 
 train_envs = DummyBatchEnv(lambda e: e, "CartPole-v1", num_envs=8)
 val_envs   = [gym.make("CartPole-v1") for _ in range(4)]

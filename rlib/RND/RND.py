@@ -1,5 +1,5 @@
 import numpy as np
-from rlib.utils.gym_compat import gym
+import gymnasium as gym
 import time, datetime
 import torch
 import torch.nn.functional as F

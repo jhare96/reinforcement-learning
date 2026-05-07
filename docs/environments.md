@@ -1,26 +1,27 @@
 # Environments
 
 `rlib` is built on top of [Gymnasium](https://gymnasium.farama.org/) — the
-maintained successor to OpenAI Gym. To keep older user code working, the
-library also tolerates the legacy `gym` package via the
-[`rlib.utils.gym_compat`](https://github.com/jhare96/reinforcement-learning/blob/master/rlib/utils/gym_compat.py)
-shim.
+maintained successor to OpenAI Gym. Backend-agnostic env adapters (Gymnasium,
+legacy `gym`, and any user-registered backend) live in
+[`rlib.envs`](https://github.com/jhare96/reinforcement-learning/tree/master/rlib/envs).
 
 ## Choosing a backend
 
 ```python
-# Preferred: pull `gym` from the compat shim. It will resolve to gymnasium
-# if installed, otherwise to the legacy gym package.
-from rlib.utils.gym_compat import gym
+# Preferred: rlib.envs.make wraps an env id (or an existing env) into the
+# canonical RLEnvBase contract.
+from rlib.envs import make
 
-env = gym.make("CartPole-v1")
+env = make("CartPole-v1")
+obs, info = env.reset(seed=0)
+obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
 ```
 
-The shim also provides `step_compat(env, action)` and `reset_compat(env)`
-helpers which always return the legacy 4-tuple form
-`(obs, reward, done, info)` — useful when integrating raw environments into
-custom training loops. Internally, all built-in wrappers and vectorised
-runners use these helpers so the rest of the library stays backend-agnostic.
+For a raw Gymnasium env you can also just `import gymnasium as gym` and call
+`gym.make(...)` directly — `rlib.envs.wrap(env)` will lift it into the
+canonical contract on demand. Wrappers in `rlib.utils.wrappers` and the
+vectorised runners in `rlib.utils.VecEnv` use this contract internally, so
+the rest of the library is backend-agnostic.
 
 ## Vectorised environments
 

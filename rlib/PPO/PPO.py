@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import time, datetime
-from rlib.utils.gym_compat import gym
+import gymnasium as gym
 import copy
 import matplotlib.pyplot as plt
 

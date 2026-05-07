@@ -54,14 +54,16 @@ Python to 3.10.
   and `rlib.utils.random_agent` use `rlib.envs.wrap` / the modern
   5-tuple directly.
 
-### Deprecated
+### Removed
 
-- `rlib.utils.gym_compat.step_compat` and `reset_compat` — still
-  callable for backward compatibility but emit a `DeprecationWarning`
-  and forward to `rlib.envs.wrap`. Will be removed in a future release.
-- The `from rlib.utils.gym_compat import gym` import still works
-  (re-exports the active backend) but is superseded by
-  `from rlib.envs import make, wrap`.
+- `rlib.utils.gym_compat` has been removed entirely (previously a deprecated
+  shim around `rlib.envs.wrap`). Replace
+  `from rlib.utils.gym_compat import gym` with
+  `import gymnasium as gym` (or use `rlib.envs.make` /
+  `rlib.envs.wrap`); replace `step_compat(env, action)` /
+  `reset_compat(env)` with `rlib.envs.wrap(env).step(action)` /
+  `rlib.envs.wrap(env).reset()` (which return the modern 5-tuple and
+  `(obs, info)` respectively).
 
 ## [3.0.0] - 2026-05-07
 

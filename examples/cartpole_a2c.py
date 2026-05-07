@@ -17,7 +17,7 @@ import torch
 
 from rlib.A2C import A2C, ActorCritic
 from rlib.utils.VecEnv import DummyBatchEnv
-from rlib.utils.gym_compat import gym
+import gymnasium as gym
 
 
 class MLP(torch.nn.Module):
