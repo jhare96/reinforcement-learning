@@ -17,6 +17,8 @@ import gymnasium as gym
 import torch
 
 from rlib.A2C import A2C, ActorCritic
+from rlib.networks import A2CConfig
+from rlib.utils import TrainerConfig
 from rlib.utils.VecEnv import DummyBatchEnv
 
 
@@ -57,26 +59,30 @@ def main() -> None:
         MLP,
         input_size=input_size,
         action_size=num_actions,
-        lr=7e-4,
-        lr_final=0.0,
-        decay_steps=int(1e5),
-        grad_clip=0.5,
-        entropy_coeff=0.01,
-        value_coeff=0.5,
-        device=device,
+        config=A2CConfig(
+            lr=7e-4,
+            lr_final=0.0,
+            decay_steps=int(1e5),
+            grad_clip=0.5,
+            entropy_coeff=0.01,
+            value_coeff=0.5,
+            device=device,
+        ),
     )
 
     trainer = A2C(
         envs=train_envs,
         model=model,
         val_envs=val_envs,
-        total_steps=int(1e5),
-        nsteps=5,
-        validate_freq=int(2e4),
-        num_val_episodes=10,
-        max_val_steps=500,
-        log_dir="logs/A2C/CartPole",
-        model_dir="models/A2C/CartPole",
+        config=TrainerConfig(
+            total_steps=int(1e5),
+            nsteps=5,
+            validate_freq=int(2e4),
+            num_val_episodes=10,
+            max_val_steps=500,
+            log_dir="logs/A2C/CartPole",
+            model_dir="models/A2C/CartPole",
+        ),
     )
 
     trainer.train()

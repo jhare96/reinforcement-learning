@@ -8,8 +8,9 @@ import torch
 import torch.nn.functional as F
 
 from rlib.A2C.ActorCritic import A2CModel
-from rlib.networks import Model
+from rlib.networks import A2CConfig, Model
 from rlib.networks.networks import MaskedLSTMBlock, NatureCNN
+from rlib.utils import TrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import (
     fastsample,
@@ -94,30 +95,18 @@ class Unreal_ActorCritic_LSTM(A2CModel):
         input_size,
         action_size,
         cell_size,
-        entropy_coeff=0.01,
-        value_coeff=0.5,
-        lr=1e-4,
-        lr_final=1e-6,
-        decay_steps=50e6,
-        grad_clip=0.5,
-        optim=torch.optim.Adam,
-        optim_args=None,
-        device='cuda',
+        config: A2CConfig,
+        *,
+        build_optimiser: bool = True,
+        optim: type[torch.optim.Optimizer] = torch.optim.Adam,
+        optim_args: dict | None = None,
         **model_args,
     ):
-        super().__init__(
-            action_size=action_size,
-            entropy_coeff=entropy_coeff,
-            value_coeff=value_coeff,
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            device=device,
-        )
+        super().__init__(action_size=action_size, config=config)
         self.input_size = input_size
         self.cell_size = cell_size
 
+        device = config.device
         self.model = model(input_size, **model_args).to(device)
         self.dense_size = self.model.dense_size
         # self.lstm = MaskedRNN(MaskedLSTMCell(cell_size, self.dense_size+action_size+1), time_major=True)
@@ -128,7 +117,8 @@ class Unreal_ActorCritic_LSTM(A2CModel):
         self.policy_distrib = torch.nn.Linear(cell_size, action_size).to(device)  # Actor
         self.V = torch.nn.Linear(cell_size, 1).to(device)  # Critic
 
-        self._build_optimiser(optim=optim, optim_args=optim_args)
+        if build_optimiser:
+            self._build_optimiser(optim=optim, optim_args=optim_args)
 
     def lstm_forward(self, state, action_reward, hidden=None, done=None):
         T, num_envs = state.shape[:2]
@@ -177,32 +167,22 @@ class UnrealA2C(Model):
         input_shape,
         action_size,
         cell_size,
-        pixel_control=True,
-        RP=1.0,
-        PC=1.0,
-        VR=1.0,
-        entropy_coeff=0.001,
-        value_coeff=0.5,
-        lr=1e-3,
-        lr_final=1e-6,
-        decay_steps=50e6,
-        grad_clip=0.5,
-        policy_args=None,
-        optim=torch.optim.Adam,
-        optim_args=None,
-        device='cuda',
+        config: A2CConfig,
+        *,
+        pixel_control: bool = True,
+        RP: float = 1.0,
+        PC: float = 1.0,
+        VR: float = 1.0,
+        policy_args: dict | None = None,
+        optim: type[torch.optim.Optimizer] = torch.optim.Adam,
+        optim_args: dict | None = None,
     ):
         if policy_args is None:
             policy_args = {}
-        super().__init__(
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            device=device,
-        )
+        super().__init__(config=config)
         self.RP, self.PC, self.VR = RP, PC, VR
-        self.entropy_coeff, self.value_coeff = entropy_coeff, value_coeff
+        self.entropy_coeff = config.entropy_coeff
+        self.value_coeff = config.value_coeff
         self.action_size = action_size
         self.pixel_control = pixel_control
 
@@ -214,17 +194,12 @@ class UnrealA2C(Model):
             input_shape,
             action_size,
             cell_size,
-            entropy_coeff=entropy_coeff,
-            value_coeff=value_coeff,
-            lr=lr,
-            lr_final=lr,
-            decay_steps=decay_steps,
+            config=config,
             build_optimiser=False,
-            grad_clip=grad_clip,
-            device=device,
             **policy_args,
         )
 
+        device = config.device
         if pixel_control:
             self.feat_map = torch.nn.Sequential(
                 torch.nn.Linear(self.policy.cell_size, 32 * 8 * 8), torch.nn.ReLU()
@@ -404,35 +379,9 @@ class UnrealTrainer(SyncMultiEnvTrainer):
         envs,
         model,
         val_envs,
-        train_mode='nstep',
-        log_dir='logs/',
-        model_dir='models/',
-        total_steps=1000000,
-        nsteps=5,
-        validate_freq=1000000,
-        save_freq=0,
-        render_freq=0,
-        num_val_episodes=50,
-        max_val_steps=10000,
-        log_scalars=True,
+        config: TrainerConfig,
     ):
-        super().__init__(
-            envs,
-            model,
-            val_envs,
-            train_mode=train_mode,
-            log_dir=log_dir,
-            model_dir=model_dir,
-            total_steps=total_steps,
-            nsteps=nsteps,
-            validate_freq=validate_freq,
-            save_freq=save_freq,
-            render_freq=render_freq,
-            update_target_freq=0,
-            num_val_episodes=num_val_episodes,
-            max_val_steps=max_val_steps,
-            log_scalars=log_scalars,
-        )
+        super().__init__(envs, model, val_envs, config=config)
 
         self.replay = deque([], maxlen=2000)
         self.action_size = self.model.action_size
@@ -447,7 +396,7 @@ class UnrealTrainer(SyncMultiEnvTrainer):
             'learning_rate_final': model.lr_final,
             'lr_decay_steps': model.decay_steps,
             'grad_clip': model.grad_clip,
-            'nsteps': nsteps,
+            'nsteps': config.nsteps,
             'num_workers': self.num_envs,
             'total_steps': self.total_steps,
             'entropy_coefficient': model.entropy_coeff,
@@ -456,8 +405,8 @@ class UnrealTrainer(SyncMultiEnvTrainer):
             'lambda': self.lambda_,
         }
 
-        if log_scalars:
-            filename = log_dir + '/hyperparameters.txt'
+        if config.log_scalars:
+            filename = config.log_dir + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
 
     def populate_memory(self):

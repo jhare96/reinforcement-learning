@@ -7,8 +7,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rlib.networks import Model
+from rlib.networks import Model, ModelConfig
 from rlib.networks.networks import NatureCNN
+from rlib.utils import TrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import fold_batch, one_hot, totorch, totorch_many, unfold_batch
 from rlib.utils.VecEnv import BatchEnv
@@ -29,22 +30,13 @@ class DQN(Model):
         model,
         input_shape,
         action_size,
-        lr=1e-3,
-        lr_final=0,
-        decay_steps=50e6,
-        grad_clip=0.5,
-        optim=torch.optim.Adam,
-        optim_args=None,
-        device='cuda',
+        config: ModelConfig,
+        *,
+        optim: type[torch.optim.Optimizer] = torch.optim.Adam,
+        optim_args: dict | None = None,
         **model_args,
     ):
-        super().__init__(
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            device=device,
-        )
+        super().__init__(config=config)
         self.action_size = action_size
 
         self.model = model(input_shape, **model_args).to(self.device)
@@ -82,45 +74,14 @@ class SyncDDQN(SyncMultiEnvTrainer):
         target_model,
         val_envs,
         action_size,
-        log_dir='logs/SyncDDQN/',
-        model_dir='models/SyncDDQN/',
-        train_mode='nstep',
-        return_type='nstep',
-        total_steps=1000000,
-        nsteps=5,
-        gamma=0.99,
-        lambda_=0.95,
-        validate_freq=1e6,
-        save_freq=0,
-        render_freq=0,
-        update_target_freq=10000,
-        num_val_episodes=50,
-        log_scalars=True,
-        epsilon_start=1,
-        epsilon_final=0.01,
-        epsilon_steps=1e6,
-        epsilon_test=0.01,
+        config: TrainerConfig,
+        *,
+        epsilon_start: float = 1,
+        epsilon_final: float = 0.01,
+        epsilon_steps: float = 1e6,
+        epsilon_test: float = 0.01,
     ):
-
-        super().__init__(
-            envs=envs,
-            model=model,
-            val_envs=val_envs,
-            train_mode=train_mode,
-            log_dir=log_dir,
-            model_dir=model_dir,
-            return_type=return_type,
-            total_steps=total_steps,
-            nsteps=nsteps,
-            gamma=gamma,
-            lambda_=lambda_,
-            validate_freq=validate_freq,
-            save_freq=save_freq,
-            render_freq=render_freq,
-            update_target_freq=update_target_freq,
-            num_val_episodes=num_val_episodes,
-            log_scalars=log_scalars,
-        )
+        super().__init__(envs=envs, model=model, val_envs=val_envs, config=config)
 
         self.target_model = self.TargetQ = target_model
         self.Q = self.model  # more readable alias
@@ -143,18 +104,18 @@ class SyncDDQN(SyncMultiEnvTrainer):
             'num_workers': self.num_envs,
             'return type': self.return_type,
             'total_steps': self.total_steps,
-            'gamma': gamma,
-            'lambda': lambda_,
+            'gamma': self.gamma,
+            'lambda': self.lambda_,
             'epsilon_start': self.epsilon,
             'epsilon_final': self.epsilon_final,
             'epsilon_steps': self.epsilon_steps,
-            'update_freq': update_target_freq,
+            'update_freq': config.update_target_freq,
         }
 
         hyper_paras = OrderedDict(hyper_paras)
 
         if self.log_scalars:
-            filename = log_dir + '/hyperparameters.txt'
+            filename = config.log_dir + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
 
     class linear_schedule:

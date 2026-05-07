@@ -6,8 +6,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rlib.networks import Model
+from rlib.networks import Model, PPOConfig
 from rlib.networks.networks import UniverseCNN
+from rlib.utils import TrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import (
     fastsample,
@@ -30,27 +31,13 @@ class PPOModel(Model):
     policy loss + entropy bonus via :meth:`ppo_clipped_policy_loss`.
     """
 
-    def __init__(
-        self,
-        action_size,
-        entropy_coeff=0.01,
-        policy_clip=0.1,
-        lr=1e-3,
-        lr_final=0,
-        decay_steps=6e5,
-        grad_clip=0.5,
-        device='cuda',
-    ):
-        super().__init__(
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            device=device,
-        )
+    config: PPOConfig
+
+    def __init__(self, action_size: int, config: PPOConfig) -> None:
+        super().__init__(config=config)
         self.action_size = action_size
-        self.entropy_coeff = entropy_coeff
-        self.policy_clip = policy_clip
+        self.entropy_coeff = config.entropy_coeff
+        self.policy_clip = config.policy_clip
 
     def ppo_clipped_policy_loss(self, policy, old_policy, action_onehot, advantage):
         """PPO clipped-objective policy loss + entropy bonus.
@@ -77,29 +64,15 @@ class PPO(PPOModel):
         model,
         input_shape,
         action_size,
-        lr=1e-3,
-        lr_final=0,
-        decay_steps=6e5,
-        grad_clip=0.5,
-        value_coeff=1.0,
-        entropy_coeff=0.01,
-        policy_clip=0.1,
-        build_optimiser=True,
-        optim=torch.optim.Adam,
-        optim_args=None,
-        device='cuda',
+        config: PPOConfig,
+        *,
+        value_coeff: float = 1.0,
+        build_optimiser: bool = True,
+        optim: type[torch.optim.Optimizer] = torch.optim.Adam,
+        optim_args: dict | None = None,
         **model_args,
     ):
-        super().__init__(
-            action_size=action_size,
-            entropy_coeff=entropy_coeff,
-            policy_clip=policy_clip,
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            device=device,
-        )
+        super().__init__(action_size=action_size, config=config)
         self.value_coeff = value_coeff
 
         self.model = model(input_shape, **model_args).to(self.device)
@@ -144,42 +117,12 @@ class PPOTrainer(SyncMultiEnvTrainer):
         envs,
         model,
         val_envs,
-        train_mode='nstep',
-        log_dir='logs/',
-        model_dir='models/',
-        total_steps=1000000,
-        nsteps=5,
-        gamma=0.99,
-        lambda_=0.95,
-        num_epochs=4,
-        num_minibatches=4,
-        validate_freq=1000000.0,
-        save_freq=0,
-        render_freq=0,
-        num_val_episodes=50,
-        max_val_steps=10000,
-        log_scalars=True,
+        config: TrainerConfig,
+        *,
+        num_epochs: int = 4,
+        num_minibatches: int = 4,
     ):
-
-        super().__init__(
-            envs,
-            model,
-            val_envs,
-            train_mode=train_mode,
-            log_dir=log_dir,
-            model_dir=model_dir,
-            total_steps=total_steps,
-            nsteps=nsteps,
-            gamma=gamma,
-            lambda_=lambda_,
-            validate_freq=validate_freq,
-            save_freq=save_freq,
-            render_freq=render_freq,
-            update_target_freq=0,
-            num_val_episodes=num_val_episodes,
-            max_val_steps=max_val_steps,
-            log_scalars=log_scalars,
-        )
+        super().__init__(envs, model, val_envs, config=config)
 
         self.num_epochs = num_epochs
         self.num_minibatches = num_minibatches
@@ -198,8 +141,8 @@ class PPOTrainer(SyncMultiEnvTrainer):
             'lambda': self.lambda_,
         }
 
-        if log_scalars:
-            filename = log_dir + '/hyperparameters.txt'
+        if config.log_scalars:
+            filename = config.log_dir + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
 
     def _train_nstep(self):

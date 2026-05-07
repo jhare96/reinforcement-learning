@@ -9,6 +9,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from rlib.networks import Model
+from rlib.utils.trainer_config import TrainerConfig
 from rlib.utils.utils import fold_batch
 from rlib.utils.VecEnv import BatchEnv, DummyBatchEnv
 
@@ -17,9 +18,7 @@ class SyncMultiEnvTrainer:
     """Synchronous multi-env training framework for any :class:`rlib.networks.Model`."""
 
     model: Model
-    env: BatchEnv | DummyBatchEnv
-    val_envs: Any
-    validate_rewards: list[Any]
+    config: TrainerConfig
     train_writer: SummaryWriter
     train_log_dir: str
 
@@ -28,100 +27,64 @@ class SyncMultiEnvTrainer:
         envs: BatchEnv | DummyBatchEnv,
         model: Model,
         val_envs: list | BatchEnv | DummyBatchEnv,
-        train_mode: str = 'nstep',
-        return_type: str = 'nstep',
-        log_dir: str = 'logs/',
-        model_dir: str = 'models/',
-        total_steps: float = 50e6,
-        nsteps: int = 5,
-        gamma: float = 0.99,
-        lambda_: float = 0.95,
-        validate_freq: float = 1e6,
-        save_freq: int = 0,
-        render_freq: int = 0,
-        update_target_freq: int = 0,
-        num_val_episodes: int = 50,
-        max_val_steps: int = 10000,
-        log_scalars: bool = True,
+        config: TrainerConfig,
     ) -> None:
-        '''
-        A synchronous multiple env training framework for pytorch
+        '''Build a synchronous multi-env training loop.
 
         Args:
-            envs - BatchEnv | DummyBatchEnv: multiple synchronous training environments
-            model - reinforcement learning model
-            log_dir, log directory string for location of directory to log scalars log_dir='logs/', model_dir='models/',
-            val_envs - use your own discretion to choose which validation mode you wan't, recommended BatchEnv or list for Atari and DummyBatchEnv for Classic Control like envs
-                list: a list of envs for validation, uses threading to run environments asychronously
-                BatchEnv: uses multiprocessing to run validation envs sychronously in parallel
-                DummyBatchEnv: allows for sychronous env stepping without the overhead of multiprocessing, good for computationally cheap environments
-            train_mode - 'nstep' or 'onestep' species whether training is done using multiple step TD learning or single step
-            return_type - string to determine whether 'nstep', 'lambda' or 'GAE' returns are to be used
-            total_steps - number of Total training steps across all environements
-            nsteps - number of steps TD error is caluclated over
-            validate_freq - number of steps across all environements before performing validating, 0 for no validation
-            save_freq - number of steps across all environements before saving model, 0 for no saving
-            render_freq - multiple of validate_freq before rendering (i.e. render every X validations), 0 for no rendering
-            update_target_freq - number of steps across all environements before updating target model, 0 for no updating
-            num_val_episodes - number of episodes to average over when validating
-            max_val_steps - maximum number of steps for each validation episode (prevents infinite loops)
-            log_scalars - boolean flag whether to log tensorboard scalars to log_dir
+            envs: training environments (``BatchEnv`` or ``DummyBatchEnv``).
+            model: an :class:`rlib.networks.Model` subclass.
+            val_envs: validation envs — a ``list`` (uses threading),
+                a ``BatchEnv`` (multiprocessing), or a ``DummyBatchEnv``
+                (in-process).
+            config: a :class:`TrainerConfig` carrying all training
+                hyperparameters.
         '''
+        self.config = config
+
         self.env = envs
-        if isinstance(envs, list):
+        if isinstance(val_envs, list):
             self.validate_func = self.validate_async
         else:
             self.validate_func = self.validate_sync
-        if train_mode not in ['nstep', 'onestep']:
-            raise ValueError(
-                'train_mode {} is not a valid argument. Valid arguments are ... {}, {}'.format(
-                    train_mode, 'nstep', 'onestep'
-                )
-            )
-        assert num_val_episodes >= len(val_envs), (
-            f'number of validation epsiodes {num_val_episodes} must be greater than or equal to the number of validation envs {len(val_envs)}'
+        assert config.num_val_episodes >= len(val_envs), (
+            f'number of validation epsiodes {config.num_val_episodes} must be greater than or '
+            f'equal to the number of validation envs {len(val_envs)}'
         )
-        if return_type not in ['nstep', 'lambda', 'GAE']:
-            raise ValueError(
-                'return_type {} is not a valid argument. Valid arguments are ... {}, {}, {}'.format(
-                    return_type, 'nstep', 'lambda', 'GAE'
-                )
-            )
-        self.train_mode = train_mode
         self.num_envs = len(envs)
         self.env_id = envs.spec.id
         self.val_envs = val_envs
-        self.validate_rewards = []
+        self.validate_rewards: list[Any] = []
         self.model = model
 
-        self.total_steps = int(total_steps)
-        self.nsteps = nsteps
-        self.return_type = return_type
-        self.gamma = gamma
-        self.lambda_ = lambda_
+        # Mirror config fields onto ``self`` for ergonomics — most of
+        # the legacy training-loop code reads ``self.gamma`` etc. directly.
+        self.train_mode = config.train_mode
+        self.total_steps = config.total_steps
+        self.nsteps = config.nsteps
+        self.return_type = config.return_type
+        self.gamma = config.gamma
+        self.lambda_ = config.lambda_
+        self.validate_freq = config.validate_freq
+        self.num_val_episodes = config.num_val_episodes
+        self.val_steps = config.max_val_steps
+        self.save_freq = config.save_freq
+        self.render_freq = config.render_freq
+        self.target_freq = config.update_target_freq
+        self.log_scalars = config.log_scalars
+        self.log_dir = config.log_dir
+        self.model_dir = config.model_dir
 
-        self.validate_freq = int(validate_freq)
-        self.num_val_episodes = num_val_episodes
-        self.val_steps = max_val_steps
         self.lock = threading.Lock()
-
-        self.save_freq = int(save_freq)
-        self.render_freq = render_freq
-        self.target_freq = int(update_target_freq)
         self.s = 0  # number of saves made
         self.t = 1  # number of updates done
-        self.log_scalars = log_scalars
-        self.log_dir = log_dir
-        self.model_dir = model_dir
-
         self.states = self.env.reset()
 
-        if log_scalars:
-            # Tensorboard Variables
-            self.train_log_dir = self.log_dir + '/train'
+        if config.log_scalars:
+            self.train_log_dir = config.log_dir + '/train'
             self.train_writer = SummaryWriter(self.train_log_dir)
 
-        if not os.path.exists(self.model_dir) and save_freq > 0:
+        if not os.path.exists(self.model_dir) and config.save_freq > 0:
             os.makedirs(self.model_dir)
 
     def __del__(self):

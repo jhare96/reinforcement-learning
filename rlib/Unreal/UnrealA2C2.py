@@ -9,8 +9,9 @@ import torch
 import torch.nn.functional as F
 
 from rlib.A2C.ActorCritic import ActorCritic
-from rlib.networks import Model
+from rlib.networks import A2CConfig, Model
 from rlib.networks.networks import UniverseCNN
+from rlib.utils import TrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import (
     GAE,
@@ -53,32 +54,22 @@ class UnrealA2C2(Model):
         policy_model,
         input_shape,
         action_size,
-        pixel_control=True,
-        RP=1.0,
-        PC=1.0,
-        VR=1.0,
-        entropy_coeff=0.001,
-        value_coeff=0.5,
-        lr=1e-3,
-        lr_final=1e-4,
-        decay_steps=50e6,
-        grad_clip=0.5,
-        policy_args=None,
-        optim=torch.optim.RMSprop,
-        device='cuda',
-        optim_args=None,
+        config: A2CConfig,
+        *,
+        pixel_control: bool = True,
+        RP: float = 1.0,
+        PC: float = 1.0,
+        VR: float = 1.0,
+        policy_args: dict | None = None,
+        optim: type[torch.optim.Optimizer] = torch.optim.RMSprop,
+        optim_args: dict | None = None,
     ):
         if policy_args is None:
             policy_args = {}
-        super().__init__(
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            device=device,
-        )
+        super().__init__(config=config)
         self.RP, self.PC, self.VR = RP, PC, VR
-        self.entropy_coeff, self.value_coeff = entropy_coeff, value_coeff
+        self.entropy_coeff = config.entropy_coeff
+        self.value_coeff = config.value_coeff
         self.pixel_control = pixel_control
         self.action_size = action_size
 
@@ -89,13 +80,12 @@ class UnrealA2C2(Model):
             policy_model,
             input_shape,
             action_size,
-            entropy_coeff=entropy_coeff,
-            value_coeff=value_coeff,
+            config=config,
             build_optimiser=False,
-            device=device,
             **policy_args,
         )
 
+        device = config.device
         if pixel_control:
             self.feat_map = torch.nn.Sequential(
                 torch.nn.Linear(self.policy.dense_size, 32 * 8 * 8), torch.nn.ReLU()
@@ -232,38 +222,12 @@ class UnrealTrainer(SyncMultiEnvTrainer):
         envs,
         model,
         val_envs,
-        train_mode='nstep',
-        log_dir='logs/UnrealA2C2',
-        model_dir='models/UnrealA2C2',
-        total_steps=1000000,
-        nsteps=5,
-        normalise_obs=True,
-        validate_freq=1000000,
-        save_freq=0,
-        render_freq=0,
-        num_val_episodes=50,
-        replay_length=2000,
-        max_val_steps=10000,
-        log_scalars=True,
+        config: TrainerConfig,
+        *,
+        normalise_obs: bool = True,
+        replay_length: int = 2000,
     ):
-
-        super().__init__(
-            envs,
-            model,
-            val_envs,
-            train_mode=train_mode,
-            log_dir=log_dir,
-            model_dir=model_dir,
-            total_steps=total_steps,
-            nsteps=nsteps,
-            validate_freq=validate_freq,
-            save_freq=save_freq,
-            render_freq=render_freq,
-            update_target_freq=0,
-            num_val_episodes=num_val_episodes,
-            max_val_steps=max_val_steps,
-            log_scalars=log_scalars,
-        )
+        super().__init__(envs, model, val_envs, config=config)
 
         self.replay = deque([], maxlen=replay_length)  # replay length per actor
         self.action_size = self.model.action_size
@@ -271,7 +235,7 @@ class UnrealTrainer(SyncMultiEnvTrainer):
         hyper_paras = {
             'learning_rate': model.lr,
             'grad_clip': model.grad_clip,
-            'nsteps': nsteps,
+            'nsteps': config.nsteps,
             'num_workers': self.num_envs,
             'total_steps': self.total_steps,
             'entropy_coefficient': model.entropy_coeff,
@@ -280,8 +244,8 @@ class UnrealTrainer(SyncMultiEnvTrainer):
             'lambda': self.lambda_,
         }
 
-        if log_scalars:
-            filename = log_dir + '/hyperparameters.txt'
+        if config.log_scalars:
+            filename = config.log_dir + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
 
         self.normalise_obs = normalise_obs

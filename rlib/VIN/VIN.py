@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
-from rlib.networks import Model
+from rlib.networks import Model, ModelConfig
 from rlib.utils.utils import fold_batch, one_hot, stack_many, tonumpy, totorch
 from rlib.utils.VecEnv import BatchEnv, DummyBatchEnv
 from rlib.utils.wrappers import AtariEnv, apple_pickgame
@@ -16,13 +16,16 @@ from rlib.utils.wrappers import AtariEnv, apple_pickgame
 
 class VINCNN(Model):
     def __init__(self, input_size, action_size, k=10, lr=1e-3, device='cuda'):
-        super().__init__(
+        # VIN historically used a constant LR (no scheduler decay) and
+        # no gradient clipping; encode that as a fixed config preset.
+        config = ModelConfig(
             lr=lr,
-            lr_final=lr,  # constant LR (no decay) — VIN never had a scheduler
+            lr_final=lr,
             decay_steps=int(1e9),
-            grad_clip=None,  # VIN never used grad clipping
+            grad_clip=None,
             device=device,
         )
+        super().__init__(config=config)
         channels, height, width = input_size
         self.action_size = action_size
         self.conv_enc = torch.nn.Conv2d(

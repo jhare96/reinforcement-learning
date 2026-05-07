@@ -20,8 +20,10 @@ from __future__ import annotations
 import gymnasium as gym
 import torch
 
+from rlib.networks import PPOConfig
 from rlib.networks.networks import UniverseCNN
 from rlib.RND import RND, PredictorCNN, RNDTrainer
+from rlib.utils import TrainerConfig
 from rlib.utils.VecEnv import BatchEnv
 from rlib.utils.wrappers import AtariEnv
 
@@ -65,26 +67,30 @@ def main() -> None:
         target_model=PredictorCNN,
         input_size=input_shape,
         action_size=action_size,
-        lr=1e-4,
-        lr_final=0.0,
-        decay_steps=int(1e7) // (num_envs * nsteps),
-        grad_clip=0.5,
+        config=PPOConfig(
+            lr=1e-4,
+            lr_final=0.0,
+            decay_steps=int(1e7) // (num_envs * nsteps),
+            grad_clip=0.5,
+            entropy_coeff=0.001,
+            device=device,
+        ),
         intr_coeff=1.0,
         extr_coeff=2.0,
-        entropy_coeff=0.001,
-        device=device,
     ).to(device)
 
     trainer = RNDTrainer(
         envs=train_envs,
         model=model,
         val_envs=val_envs,
-        total_steps=int(1e7),
-        nsteps=nsteps,
-        validate_freq=int(5e5),
-        num_val_episodes=8,
-        log_dir=f"logs/RND/{env_id}",
-        model_dir=f"models/RND/{env_id}",
+        config=TrainerConfig(
+            total_steps=int(1e7),
+            nsteps=nsteps,
+            validate_freq=int(5e5),
+            num_val_episodes=8,
+            log_dir=f"logs/RND/{env_id}",
+            model_dir=f"models/RND/{env_id}",
+        ),
     )
     trainer.train()
 

@@ -17,7 +17,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rlib.networks import Model
+from rlib.networks import A2CConfig, Model
 from rlib.networks.networks import MaskedLSTMBlock
 from rlib.utils.utils import tonumpy, tonumpy_many, totorch, totorch_many
 
@@ -30,27 +30,13 @@ class A2CModel(Model):
     all share the same loss function via :meth:`loss`.
     """
 
-    def __init__(
-        self,
-        action_size: int,
-        entropy_coeff: float = 0.01,
-        value_coeff: float = 0.5,
-        lr: float = 1e-3,
-        lr_final: float = 1e-6,
-        decay_steps: float = 6e5,
-        grad_clip: float | None = 0.5,
-        device: str = "cuda",
-    ):
-        super().__init__(
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            device=device,
-        )
+    config: A2CConfig
+
+    def __init__(self, action_size: int, config: A2CConfig) -> None:
+        super().__init__(config=config)
         self.action_size = action_size
-        self.entropy_coeff = entropy_coeff
-        self.value_coeff = value_coeff
+        self.entropy_coeff = config.entropy_coeff
+        self.value_coeff = config.value_coeff
 
     def loss(
         self,
@@ -92,28 +78,14 @@ class ActorCritic(A2CModel):
         model,
         input_size,
         action_size,
-        entropy_coeff=0.01,
-        value_coeff=0.5,
-        lr=1e-3,
-        lr_final=1e-6,
-        decay_steps=6e5,
-        grad_clip=0.5,
-        build_optimiser=True,
-        optim=torch.optim.RMSprop,
-        optim_args=None,
-        device='cuda',
+        config: A2CConfig,
+        *,
+        build_optimiser: bool = True,
+        optim: type[torch.optim.Optimizer] = torch.optim.RMSprop,
+        optim_args: dict | None = None,
         **model_args,
     ):
-        super().__init__(
-            action_size=action_size,
-            entropy_coeff=entropy_coeff,
-            value_coeff=value_coeff,
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            device=device,
-        )
+        super().__init__(action_size=action_size, config=config)
 
         self.model = model(input_size, **model_args).to(self.device)
         self.dense_size = self.model.dense_size
@@ -152,28 +124,14 @@ class ActorCritic_LSTM(A2CModel):
         input_size,
         action_size,
         cell_size,
-        entropy_coeff=0.01,
-        value_coeff=0.5,
-        lr=1e-3,
-        lr_final=1e-6,
-        decay_steps=6e5,
-        grad_clip=0.5,
-        build_optimiser=True,
-        optim=torch.optim.RMSprop,
-        optim_args=None,
-        device='cuda',
+        config: A2CConfig,
+        *,
+        build_optimiser: bool = True,
+        optim: type[torch.optim.Optimizer] = torch.optim.RMSprop,
+        optim_args: dict | None = None,
         **model_args,
     ):
-        super().__init__(
-            action_size=action_size,
-            entropy_coeff=entropy_coeff,
-            value_coeff=value_coeff,
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            device=device,
-        )
+        super().__init__(action_size=action_size, config=config)
         self.input_size = input_size
         self.cell_size = cell_size
 

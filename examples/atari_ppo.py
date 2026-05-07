@@ -23,8 +23,10 @@ import sys
 
 import gymnasium as gym
 
+from rlib.networks import PPOConfig
 from rlib.networks.networks import UniverseCNN
 from rlib.PPO import PPO, PPOTrainer
+from rlib.utils import TrainerConfig
 from rlib.utils.VecEnv import BatchEnv
 from rlib.utils.wrappers import AtariEnv
 
@@ -58,27 +60,31 @@ def main(env_id: str = "SpaceInvadersDeterministic-v4") -> None:
         UniverseCNN,
         input_shape=input_shape,
         action_size=action_size,
-        lr=2.5e-4,
-        lr_final=0.0,
-        decay_steps=int(1e7) // (num_envs * nsteps),
-        grad_clip=0.5,
+        config=PPOConfig(
+            lr=2.5e-4,
+            lr_final=0.0,
+            decay_steps=int(1e7) // (num_envs * nsteps),
+            grad_clip=0.5,
+            entropy_coeff=0.01,
+            policy_clip=0.1,
+        ),
         value_coeff=0.5,
-        entropy_coeff=0.01,
-        policy_clip=0.1,
     )
 
     trainer = PPOTrainer(
         envs=train_envs,
         model=model,
         val_envs=val_envs,
-        total_steps=int(1e7),
-        nsteps=nsteps,
+        config=TrainerConfig(
+            total_steps=int(1e7),
+            nsteps=nsteps,
+            validate_freq=int(2e5),
+            num_val_episodes=8,
+            log_dir=f"logs/PPO/{env_id}",
+            model_dir=f"models/PPO/{env_id}",
+        ),
         num_epochs=4,
         num_minibatches=4,
-        validate_freq=int(2e5),
-        num_val_episodes=8,
-        log_dir=f"logs/PPO/{env_id}",
-        model_dir=f"models/PPO/{env_id}",
     )
     trainer.train()
 

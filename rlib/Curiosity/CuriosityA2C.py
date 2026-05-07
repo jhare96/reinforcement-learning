@@ -6,8 +6,9 @@ import torch
 import torch.nn.functional as F
 
 from rlib.A2C.A2C import ActorCritic
-from rlib.networks import Model
+from rlib.networks import A2CConfig, Model
 from rlib.networks.networks import NatureCNN
+from rlib.utils import TrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import (
     RunningMeanStd,
@@ -109,36 +110,23 @@ class Curiosity(Model):
         ICM_model,
         input_size,
         action_size,
-        forward_coeff,
-        policy_importance,
-        reward_scale,
-        entropy_coeff,
-        value_coeff=0.5,
-        lr=1e-3,
-        lr_final=1e-3,
-        decay_steps=6e5,
-        grad_clip=0.5,
-        policy_args=None,
-        ICM_args=None,
-        device='cuda',
+        config: A2CConfig,
+        *,
+        forward_coeff: float,
+        policy_importance: float,
+        reward_scale: float,
+        policy_args: dict | None = None,
+        ICM_args: dict | None = None,
     ):
         if ICM_args is None:
             ICM_args = {}
         if policy_args is None:
             policy_args = {}
-        super().__init__(
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            device=device,
-        )
-        self.reward_scale, self.forward_coeff, self.policy_importance, self.entropy_coeff = (
-            reward_scale,
-            forward_coeff,
-            policy_importance,
-            entropy_coeff,
-        )
+        super().__init__(config=config)
+        self.reward_scale = reward_scale
+        self.forward_coeff = forward_coeff
+        self.policy_importance = policy_importance
+        self.entropy_coeff = config.entropy_coeff
         self.action_size = action_size
 
         try:
@@ -146,19 +134,15 @@ class Curiosity(Model):
         except TypeError:
             input_size = (input_size,)
 
-        self.ICM = ICM(ICM_model, input_size, action_size, forward_coeff, device=device, **ICM_args)
+        self.ICM = ICM(
+            ICM_model, input_size, action_size, forward_coeff, device=config.device, **ICM_args
+        )
         self.AC = ActorCritic(
             policy_model,
             input_size,
             action_size,
-            entropy_coeff,
-            value_coeff,
-            lr,
-            lr_final,
-            decay_steps,
-            grad_clip,
+            config=config,
             build_optimiser=False,
-            device=device,
             **policy_args,
         )
 
@@ -202,34 +186,9 @@ class Curiosity_Trainer(SyncMultiEnvTrainer):
         envs,
         model,
         val_envs,
-        train_mode='nstep',
-        log_dir='logs/',
-        total_steps=1000000,
-        nsteps=5,
-        validate_freq=1000000,
-        save_freq=0,
-        render_freq=0,
-        num_val_episodes=50,
-        max_val_steps=10000,
-        log_scalars=True,
+        config: TrainerConfig,
     ):
-        super().__init__(
-            envs,
-            model,
-            val_envs,
-            train_mode=train_mode,
-            return_type='nstep',
-            log_dir=log_dir,
-            total_steps=total_steps,
-            nsteps=nsteps,
-            validate_freq=validate_freq,
-            save_freq=save_freq,
-            render_freq=render_freq,
-            update_target_freq=0,
-            num_val_episodes=num_val_episodes,
-            max_val_steps=max_val_steps,
-            log_scalars=log_scalars,
-        )
+        super().__init__(envs, model, val_envs, config=config)
 
         self.state_obs = RollingObs()
         self.state_mean = None
@@ -253,7 +212,7 @@ class Curiosity_Trainer(SyncMultiEnvTrainer):
         }
 
         if self.log_scalars:
-            filename = log_dir + '/hyperparameters.txt'
+            filename = config.log_dir + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
 
         self.lambda_ = 0.95

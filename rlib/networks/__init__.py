@@ -3,5 +3,6 @@
 
 from rlib.networks import networks  # noqa: F401
 from rlib.networks.base import Model
+from rlib.networks.model_config import A2CConfig, ModelConfig, PPOConfig
 
-__all__ = ["Model"]
+__all__ = ["A2CConfig", "Model", "ModelConfig", "PPOConfig"]

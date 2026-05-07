@@ -7,6 +7,7 @@ import torch
 
 from rlib.A2C.ActorCritic import ActorCritic_LSTM
 from rlib.networks.networks import NatureCNN
+from rlib.utils import TrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import fastsample, fold_batch, stack_many
 from rlib.utils.VecEnv import BatchEnv, DummyBatchEnv
@@ -19,38 +20,9 @@ class A2CLSTM_Trainer(SyncMultiEnvTrainer):
         envs,
         model,
         val_envs,
-        train_mode='nstep',
-        return_type='nstep',
-        log_dir='logs/',
-        model_dir='models/',
-        total_steps=1000000,
-        nsteps=20,
-        validate_freq=1e6,
-        save_freq=0,
-        render_freq=0,
-        num_val_episodes=50,
-        max_val_steps=10000,
-        log_scalars=True,
+        config: TrainerConfig,
     ):
-
-        super().__init__(
-            envs,
-            model,
-            val_envs,
-            log_dir=log_dir,
-            model_dir=model_dir,
-            train_mode=train_mode,
-            return_type=return_type,
-            total_steps=total_steps,
-            nsteps=nsteps,
-            validate_freq=validate_freq,
-            save_freq=save_freq,
-            render_freq=render_freq,
-            update_target_freq=0,
-            num_val_episodes=num_val_episodes,
-            max_val_steps=max_val_steps,
-            log_scalars=log_scalars,
-        )
+        super().__init__(envs, model, val_envs, config=config)
 
         self.prev_hidden = self.model.get_initial_hidden(self.num_envs)
 
@@ -69,7 +41,7 @@ class A2CLSTM_Trainer(SyncMultiEnvTrainer):
         }
 
         if self.log_scalars:
-            filename = log_dir + '/hyperparameters.txt'
+            filename = config.log_dir + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_params)
 
     def _train_nstep(self):

@@ -20,8 +20,8 @@ variants (feed-forward, recurrent, ...) can inherit and reuse.
 
 Subclasses are expected to:
 
-1. Call ``super().__init__(lr=..., lr_final=..., decay_steps=...,
-   grad_clip=..., device=...)``.
+1. Call ``super().__init__(config=...)`` with a :class:`ModelConfig`
+   (or subclass).
 2. Build their network heads (policy/value/Q/etc.) attached to
    ``self.device``.
 3. Optionally call :meth:`Model._build_optimiser` once they have all
@@ -43,6 +43,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from rlib.networks.model_config import ModelConfig
 from rlib.utils.schedulers import polynomial_sheduler
 
 __all__ = ["Model"]
@@ -52,31 +53,29 @@ class Model(torch.nn.Module, ABC):
     """Abstract base class for trainable rlib agent models.
 
     Args:
-        lr: Initial learning rate.
-        lr_final: Final learning rate the polynomial scheduler decays to.
-        decay_steps: Number of optimiser steps over which to decay the LR.
-        grad_clip: Maximum gradient norm. ``None`` disables clipping.
-        device: Torch device string for any sub-modules created by
-            subclasses (e.g. ``"cuda"`` or ``"cpu"``).
+        config: A :class:`ModelConfig` (or subclass) holding LR /
+            scheduler / device hyperparameters.
+
+    Attributes:
+        config: The original config object (immutable).
+        lr, lr_final, decay_steps, grad_clip, device: Convenience
+            mirrors of the corresponding ``config`` fields.
     """
 
     optimiser: torch.optim.Optimizer
     scheduler: torch.optim.lr_scheduler.LambdaLR
+    config: ModelConfig
 
-    def __init__(
-        self,
-        lr: float = 1e-3,
-        lr_final: float = 0.0,
-        decay_steps: float = 6e5,
-        grad_clip: float | None = 0.5,
-        device: str = "cuda",
-    ) -> None:
+    def __init__(self, config: ModelConfig) -> None:
         super().__init__()
-        self.lr = lr
-        self.lr_final = lr_final
-        self.decay_steps = decay_steps
-        self.grad_clip = grad_clip
-        self.device = device
+        self.config = config
+        # Mirror the most-frequently-read fields onto ``self`` for
+        # ergonomics — call sites read ``self.lr`` etc. directly.
+        self.lr = config.lr
+        self.lr_final = config.lr_final
+        self.decay_steps = config.decay_steps
+        self.grad_clip = config.grad_clip
+        self.device = config.device
 
     # ------------------------------------------------------------------
     # Abstract contract

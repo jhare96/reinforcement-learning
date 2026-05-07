@@ -6,9 +6,10 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rlib.networks import Model
+from rlib.networks import Model, ModelConfig, PPOConfig
 from rlib.networks.networks import NatureCNN
 from rlib.PPO.PPO import PPOModel
+from rlib.utils import TrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import (
     fastsample,
@@ -28,23 +29,14 @@ class ValueModel(Model):
         model,
         input_shape,
         action_size,
-        lr=1e-3,
-        lr_final=0,
-        decay_steps=6e5,
-        grad_clip=0.5,
-        build_optimiser=True,
-        optim=torch.optim.Adam,
-        optim_args=None,
-        device='cuda',
+        config: ModelConfig,
+        *,
+        build_optimiser: bool = True,
+        optim: type[torch.optim.Optimizer] = torch.optim.Adam,
+        optim_args: dict | None = None,
         **model_args,
     ):
-        super().__init__(
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            device=device,
-        )
+        super().__init__(config=config)
         self.action_size = action_size
 
         self.model = model(input_shape, **model_args).to(self.device)
@@ -82,29 +74,15 @@ class PolicyModel(PPOModel):
         model,
         input_shape,
         action_size,
-        lr=1e-3,
-        lr_final=0,
-        decay_steps=6e5,
-        grad_clip=0.5,
-        entropy_coeff=0.01,
-        policy_clip=0.1,
-        adv_coeff=0.25,
-        build_optimiser=True,
-        optim=torch.optim.Adam,
-        optim_args=None,
-        device='cuda',
+        config: PPOConfig,
+        *,
+        adv_coeff: float = 0.25,
+        build_optimiser: bool = True,
+        optim: type[torch.optim.Optimizer] = torch.optim.Adam,
+        optim_args: dict | None = None,
         **model_args,
     ):
-        super().__init__(
-            action_size=action_size,
-            entropy_coeff=entropy_coeff,
-            policy_clip=policy_clip,
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            device=device,
-        )
+        super().__init__(action_size=action_size, config=config)
         self.adv_coeff = adv_coeff
 
         self.model = model(input_shape, **model_args).to(self.device)
@@ -152,20 +130,15 @@ class DAAC(Model):
         value_model,
         input_shape,
         action_size,
-        entropy_coeff=0.01,
-        adv_coeff=0.25,
-        policy_clip=0.1,
-        lr=5e-4,
-        lr_final=1e-5,
-        decay_steps=6e5,
-        grad_clip=0.2,
-        device='cuda',
-        policy_optim=torch.optim.Adam,
-        policy_optim_args=None,
-        policy_model_args=None,
-        value_optim=torch.optim.Adam,
-        value_optim_args=None,
-        value_model_args=None,
+        config: PPOConfig,
+        *,
+        adv_coeff: float = 0.25,
+        policy_optim: type[torch.optim.Optimizer] = torch.optim.Adam,
+        policy_optim_args: dict | None = None,
+        policy_model_args: dict | None = None,
+        value_optim: type[torch.optim.Optimizer] = torch.optim.Adam,
+        value_optim_args: dict | None = None,
+        value_model_args: dict | None = None,
     ):
         if value_model_args is None:
             value_model_args = {}
@@ -175,28 +148,18 @@ class DAAC(Model):
             policy_model_args = {}
         if policy_optim_args is None:
             policy_optim_args = {}
-        super().__init__(
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            device=device,
-        )
-        self.entropy_coeff = entropy_coeff
+        super().__init__(config=config)
+        self.entropy_coeff = config.entropy_coeff
         self.adv_coeff = adv_coeff
-        self.policy_clip = policy_clip
+        self.policy_clip = config.policy_clip
 
         self.value = ValueModel(
             value_model,
             input_shape,
             action_size,
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
+            config=config,
             optim=value_optim,
             optim_args=value_optim_args,
-            device=device,
             **value_model_args,
         )
 
@@ -204,16 +167,10 @@ class DAAC(Model):
             policy_model,
             input_shape,
             action_size,
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            entropy_coeff=entropy_coeff,
+            config=config,
             adv_coeff=adv_coeff,
-            policy_clip=policy_clip,
             optim=policy_optim,
             optim_args=policy_optim_args,
-            device=device,
             **policy_model_args,
         )
 
@@ -243,43 +200,13 @@ class DAACTrainer(SyncMultiEnvTrainer):
         envs,
         model,
         val_envs,
-        train_mode='nstep',
-        log_dir='logs/',
-        model_dir='models/',
-        total_steps=1000000,
-        nsteps=5,
-        gamma=0.99,
-        lambda_=0.95,
-        policy_epochs=1,
-        value_epochs=9,
-        num_minibatches=8,
-        validate_freq=1000000.0,
-        save_freq=0,
-        render_freq=0,
-        num_val_episodes=50,
-        max_val_steps=10000,
-        log_scalars=True,
+        config: TrainerConfig,
+        *,
+        policy_epochs: int = 1,
+        value_epochs: int = 9,
+        num_minibatches: int = 8,
     ):
-
-        super().__init__(
-            envs,
-            model,
-            val_envs,
-            train_mode=train_mode,
-            log_dir=log_dir,
-            model_dir=model_dir,
-            total_steps=total_steps,
-            nsteps=nsteps,
-            gamma=gamma,
-            lambda_=lambda_,
-            validate_freq=validate_freq,
-            save_freq=save_freq,
-            render_freq=render_freq,
-            update_target_freq=0,
-            num_val_episodes=num_val_episodes,
-            max_val_steps=max_val_steps,
-            log_scalars=log_scalars,
-        )
+        super().__init__(envs, model, val_envs, config=config)
 
         self.policy_epochs = policy_epochs
         self.value_epochs = value_epochs
@@ -304,8 +231,8 @@ class DAACTrainer(SyncMultiEnvTrainer):
             'lambda': self.lambda_,
         }
 
-        if log_scalars:
-            filename = log_dir + '/hyperparameters.txt'
+        if config.log_scalars:
+            filename = config.log_dir + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
 
     def _train_nstep(self):

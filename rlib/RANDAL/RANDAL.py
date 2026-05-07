@@ -6,9 +6,10 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rlib.networks import Model
+from rlib.networks import Model, PPOConfig
 from rlib.networks.networks import NatureCNN
 from rlib.RND.RND import PPOIntrinsic, PredictorCNN, RewardForwardFilter
+from rlib.utils import TrainerConfig
 from rlib.utils.SyncMultiEnvTrainer import SyncMultiEnvTrainer
 from rlib.utils.utils import (
     RunningMeanStd,
@@ -41,36 +42,25 @@ class RANDAL(Model):
         target_model,
         input_size,
         action_size,
-        pixel_control=True,
-        intr_coeff=0.5,
-        extr_coeff=1.0,
-        entropy_coeff=0.001,
-        policy_clip=0.1,
-        lr=1e-4,
-        lr_final=1e-5,
-        decay_steps=6e5,
-        grad_clip=0.5,
-        RP=1,
-        VR=1,
-        PC=1,
-        policy_args=None,
-        RND_args=None,
-        optim=torch.optim.Adam,
-        optim_args=None,
-        device='cuda',
+        config: PPOConfig,
+        *,
+        pixel_control: bool = True,
+        intr_coeff: float = 0.5,
+        extr_coeff: float = 1.0,
+        RP: float = 1,
+        VR: float = 1,
+        PC: float = 1,
+        policy_args: dict | None = None,
+        RND_args: dict | None = None,
+        optim: type[torch.optim.Optimizer] = torch.optim.Adam,
+        optim_args: dict | None = None,
     ):
         if RND_args is None:
             RND_args = {}
         if policy_args is None:
             policy_args = {}
-        super().__init__(
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            device=device,
-        )
-        self.entropy_coeff = entropy_coeff
+        super().__init__(config=config)
+        self.entropy_coeff = config.entropy_coeff
         self.intr_coeff = intr_coeff
         self.extr_coeff = extr_coeff
         self.pixel_control = pixel_control
@@ -83,18 +73,14 @@ class RANDAL(Model):
             policy_model,
             input_size,
             action_size,
-            lr=lr,
-            lr_final=lr_final,
-            decay_steps=decay_steps,
-            grad_clip=grad_clip,
-            entropy_coeff=entropy_coeff,
-            policy_clip=policy_clip,
+            config=config,
             extr_coeff=extr_coeff,
             intr_coeff=intr_coeff,
             build_optimiser=False,
             **policy_args,
         )
 
+        device = config.device
         target_size = (
             (1, input_size[1], input_size[2]) if len(input_size) == 3 else input_size
         )  # only use last frame in frame-stack for convolutions
@@ -272,46 +258,16 @@ class RANDALTrainer(SyncMultiEnvTrainer):
         envs,
         model,
         val_envs,
-        train_mode='nstep',
-        log_dir='logs/',
-        model_dir='models/',
-        total_steps=1000000,
-        nsteps=5,
-        gamma_extr=0.999,
-        gamma_intr=0.99,
-        lambda_=0.95,
-        init_obs_steps=600,
-        num_epochs=4,
-        num_minibatches=4,
-        validate_freq=1000000.0,
-        save_freq=0,
-        render_freq=0,
-        num_val_episodes=50,
-        max_val_steps=10000,
-        replay_length=2000,
-        norm_pixel_reward=True,
-        log_scalars=True,
+        config: TrainerConfig,
+        *,
+        gamma_intr: float = 0.99,
+        init_obs_steps: int = 600,
+        num_epochs: int = 4,
+        num_minibatches: int = 4,
+        replay_length: int = 2000,
+        norm_pixel_reward: bool = True,
     ):
-
-        super().__init__(
-            envs,
-            model,
-            val_envs,
-            train_mode=train_mode,
-            log_dir=log_dir,
-            model_dir=model_dir,
-            total_steps=total_steps,
-            nsteps=nsteps,
-            gamma=gamma_extr,
-            lambda_=lambda_,
-            validate_freq=validate_freq,
-            save_freq=save_freq,
-            render_freq=render_freq,
-            update_target_freq=0,
-            num_val_episodes=num_val_episodes,
-            max_val_steps=max_val_steps,
-            log_scalars=log_scalars,
-        )
+        super().__init__(envs, model, val_envs, config=config)
 
         self.gamma_intr = gamma_intr
         self.num_epochs = num_epochs
@@ -347,8 +303,8 @@ class RANDALTrainer(SyncMultiEnvTrainer):
             'reward_prediction_coefficient': model.RP,
         }
 
-        if log_scalars:
-            filename = log_dir + '/hyperparameters.txt'
+        if config.log_scalars:
+            filename = config.log_dir + '/hyperparameters.txt'
             self.save_hyperparameters(filename, **hyper_paras)
 
     def populate_memory(self):
