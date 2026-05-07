@@ -31,7 +31,6 @@ zero-cost pass-through, while other backends (legacy ``gym``,
 from abc import ABC, abstractmethod
 from typing import Any, Protocol, runtime_checkable
 
-
 __all__ = ["RLEnv", "RLEnvBase", "RLVecEnv"]
 
 
@@ -50,14 +49,11 @@ class RLEnv(Protocol):
     observation_space: Any
     action_space: Any
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
-        ...
+    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]: ...
 
-    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
-        ...
+    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]: ...
 
-    def close(self) -> None:
-        ...
+    def close(self) -> None: ...
 
 
 class RLEnvBase(ABC):
@@ -129,9 +125,8 @@ class RLEnvBase(ABC):
     def __enter__(self) -> "RLEnvBase":
         return self
 
-    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         self.close()
-        return False
 
     def __getattr__(self, name: str) -> Any:
         # Only called when normal attribute lookup fails.  Avoid
@@ -164,12 +159,10 @@ class RLVecEnv(ABC):
         """Step every sub-env and return ``(obs, rewards, dones, infos)``."""
 
     @abstractmethod
-    def close(self) -> None:
-        ...
+    def close(self) -> None: ...
 
     @abstractmethod
-    def __len__(self) -> int:
-        ...
+    def __len__(self) -> int: ...
 
     @staticmethod
     def merge_done(terminated: bool, truncated: bool) -> bool:

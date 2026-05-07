@@ -1,0 +1,54 @@
+name: Docker
+
+on:
+  push:
+    branches: [master, v3]
+    paths:
+      - "Dockerfile"
+      - "requirements.txt"
+      - "pyproject.toml"
+      - "rlib/**"
+      - ".github/workflows/docker.yml"
+  pull_request:
+    branches: [master, v3]
+    paths:
+      - "Dockerfile"
+      - "requirements.txt"
+      - "pyproject.toml"
+      - "rlib/**"
+      - ".github/workflows/docker.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: rlib:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test image
+        run: |
+          docker run --rm rlib:ci \
+            python -c "import rlib; print('rlib', rlib.__version__, 'image OK')"

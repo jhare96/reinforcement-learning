@@ -17,12 +17,12 @@ for billions of frames) and, ideally, run on GPU.
 
 from __future__ import annotations
 
+import gymnasium as gym
 import torch
 
-from rlib.RND import RND, RNDTrainer, PredictorCNN
 from rlib.networks.networks import UniverseCNN
+from rlib.RND import RND, PredictorCNN, RNDTrainer
 from rlib.utils.VecEnv import BatchEnv
-import gymnasium as gym
 from rlib.utils.wrappers import AtariEnv
 
 
@@ -37,10 +37,28 @@ def main() -> None:
     action_size = probe.action_space.n
     probe.close()
 
-    train_envs = BatchEnv(AtariEnv, env_id, num_envs=num_envs, blocking=False,
-                          k=4, reset=False, episodic=False, clip_reward=True, auto_reset=True)
-    val_envs = BatchEnv(AtariEnv, env_id, num_envs=4, blocking=False,
-                        k=4, reset=False, episodic=False, clip_reward=False, auto_reset=True)
+    train_envs = BatchEnv(
+        AtariEnv,
+        env_id,
+        num_envs=num_envs,
+        blocking=False,
+        k=4,
+        reset=False,
+        episodic=False,
+        clip_reward=True,
+        auto_reset=True,
+    )
+    val_envs = BatchEnv(
+        AtariEnv,
+        env_id,
+        num_envs=4,
+        blocking=False,
+        k=4,
+        reset=False,
+        episodic=False,
+        clip_reward=False,
+        auto_reset=True,
+    )
 
     model = RND(
         policy_model=UniverseCNN,

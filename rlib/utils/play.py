@@ -1,12 +1,13 @@
-from rlib.envs import make as make_env, wrap as wrap_env
-from rlib.envs.base import RLVecEnv
-import gymnasium as gym
-import pygame
-import matplotlib.pyplot as plt
-#from gym.utils import play
-
+# from gym.utils import play
 from collections import deque
+
+import matplotlib.pyplot as plt
+import pygame
 from pygame.locals import VIDEORESIZE
+
+from rlib.envs import make as make_env
+from rlib.envs import wrap as wrap_env
+from rlib.envs.base import RLVecEnv
 
 
 def display_arr(screen, arr, video_size, transpose):
@@ -14,9 +15,17 @@ def display_arr(screen, arr, video_size, transpose):
     arr = 255.0 * (arr - arr_min) / (arr_max - arr_min)
     pyg_img = pygame.surfarray.make_surface(arr.swapaxes(0, 1) if transpose else arr)
     pyg_img = pygame.transform.scale(pyg_img, video_size)
-    screen.blit(pyg_img, (0,0))
+    screen.blit(pyg_img, (0, 0))
 
-def play(env, transpose=True, fps=30, zoom=None, callback=None, keys_to_action=None):
+
+def play(
+    env,
+    transpose=True,
+    fps=30,
+    zoom=None,
+    callback=None,
+    keys_to_action=None,
+):
     """Allows one to play the game using keyboard.
     To simply play the game use:
         play(gym.make("Pong-v4"))
@@ -65,7 +74,7 @@ def play(env, transpose=True, fps=30, zoom=None, callback=None, keys_to_action=N
     """
     rl_env = wrap_env(env)
     rl_env.reset()
-    rendered=env.render( mode='rgb_array')
+    rendered = env.render(mode='rgb_array')
 
     if keys_to_action is None:
         if hasattr(env, 'get_keys_to_action'):
@@ -73,11 +82,14 @@ def play(env, transpose=True, fps=30, zoom=None, callback=None, keys_to_action=N
         elif hasattr(env.unwrapped, 'get_keys_to_action'):
             keys_to_action = env.unwrapped.get_keys_to_action()
         else:
-            assert False, env.spec.id + " does not have explicit key to action mapping, " + \
-                          "please specify one manually"
-    relevant_keys = set(sum(map(list, keys_to_action.keys()),[]))
-    
-    video_size=[rendered.shape[1],rendered.shape[0]]
+            raise AssertionError(
+                env.spec.id
+                + " does not have explicit key to action mapping, "
+                + "please specify one manually"
+            )
+    relevant_keys = set(sum(map(list, keys_to_action.keys()), []))
+
+    video_size = [rendered.shape[1], rendered.shape[0]]
     if zoom is not None:
         video_size = int(video_size[0] * zoom), int(video_size[1] * zoom)
 
@@ -87,7 +99,6 @@ def play(env, transpose=True, fps=30, zoom=None, callback=None, keys_to_action=N
 
     screen = pygame.display.set_mode(video_size)
     clock = pygame.time.Clock()
-
 
     while running:
         if env_done:
@@ -101,7 +112,7 @@ def play(env, transpose=True, fps=30, zoom=None, callback=None, keys_to_action=N
             if callback is not None:
                 callback(prev_obs, obs, action, rew, env_done, info)
         if obs is not None:
-            rendered=env.render( mode='rgb_array')
+            rendered = env.render(mode='rgb_array')
             display_arr(screen, rendered, transpose=transpose, video_size=video_size)
 
         # process pygame events
@@ -126,7 +137,8 @@ def play(env, transpose=True, fps=30, zoom=None, callback=None, keys_to_action=N
         clock.tick(fps)
     pygame.quit()
 
-class PlayPlot(object):
+
+class PlayPlot:
     def __init__(self, callback, horizon_timesteps, plot_names):
         self.data_callback = callback
         self.horizon_timesteps = horizon_timesteps
@@ -142,7 +154,7 @@ class PlayPlot(object):
             axis.set_title(name)
         self.t = 0
         self.cur_plot = [None for _ in range(num_plots)]
-        self.data     = [deque(maxlen=horizon_timesteps) for _ in range(num_plots)]
+        self.data = [deque(maxlen=horizon_timesteps) for _ in range(num_plots)]
 
     def callback(self, obs_t, obs_tp1, action, rew, done, info):
         points = self.data_callback(obs_t, obs_tp1, action, rew, done, info)
@@ -159,9 +171,14 @@ class PlayPlot(object):
             self.ax[i].set_xlim(xmin, xmax)
         plt.pause(0.000001)
 
+
 if __name__ == '__main__':
     env = make_env('MountainCar-v0')
+
     def callback(obs_t, obs_tp1, action, rew, done, info):
-        return [rew,]
+        return [
+            rew,
+        ]
+
     plotter = PlayPlot(callback, 30 * 5, ["reward"])
     play(env, callback=plotter.callback)

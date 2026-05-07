@@ -28,14 +28,14 @@ from PIL import Image
 from rlib.envs import RLEnvBase, wrap
 
 
-def _ensure_rlenv(env: Any) -> RLEnvBase:
+def _ensure_rlenv(env) -> RLEnvBase:
     """Coerce a raw backend env into an :class:`RLEnvBase` if needed."""
     if isinstance(env, RLEnvBase):
         return env
     return wrap(env)
 
 
-def AtariValidate(env: Any) -> RLEnvBase:
+def AtariValidate(env) -> RLEnvBase:
     env = FireResetEnv(env)
     env = NoopResetEnv(env, max_op=3000)
     env = StackEnv(env)
@@ -43,7 +43,7 @@ def AtariValidate(env: Any) -> RLEnvBase:
 
 
 class RescaleEnv(RLEnvBase):
-    def __init__(self, env: Any, size: int) -> None:
+    def __init__(self, env, size: int):
         self.env = _ensure_rlenv(env)
         self.size = size
 
@@ -52,65 +52,65 @@ class RescaleEnv(RLEnvBase):
         frame = np.dot(frame[..., :3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
         return frame[:, :, np.newaxis]
 
-    def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
+    def step(self, action) -> tuple[np.ndarray, float, bool, bool, dict]:
         obs, reward, terminated, truncated, info = self.env.step(action)
         return self.preprocess(obs), reward, terminated, truncated, info
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[np.ndarray, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[np.ndarray, dict]:
         obs, info = self.env.reset(seed=seed, options=options)
         return self.preprocess(obs), info
 
 
 class AtariRescale42x42(RLEnvBase):
-    def __init__(self, env: Any) -> None:
+    def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
     def preprocess(self, frame: np.ndarray) -> np.ndarray:
-        frame = np.array(Image.fromarray(frame).resize([84, 110]))[110 - 84:, 0:84, :]
+        frame = np.array(Image.fromarray(frame).resize([84, 110]))[110 - 84 :, 0:84, :]
         frame = np.dot(frame[..., :3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
         frame = np.array(Image.fromarray(frame).resize([42, 42])).astype(dtype=np.uint8)
         return frame[:, :, np.newaxis]
 
-    def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
+    def step(self, action) -> tuple[np.ndarray, float, bool, bool, dict]:
         obs, reward, terminated, truncated, info = self.env.step(action)
         return self.preprocess(obs), reward, terminated, truncated, info
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[np.ndarray, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[np.ndarray, dict]:
         obs, info = self.env.reset(seed=seed, options=options)
         return self.preprocess(obs), info
 
 
 class AtariRescaleEnv(RLEnvBase):
-    def __init__(self, env: Any) -> None:
+    def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
     def preprocess(self, frame: np.ndarray) -> np.ndarray:
-        frame = np.array(Image.fromarray(frame).resize([84, 110]))[110 - 84:, 0:84, :]
+        frame = np.array(Image.fromarray(frame).resize([84, 110]))[110 - 84 :, 0:84, :]
         frame = np.dot(frame[..., :3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
         return frame[:, :, np.newaxis]
 
-    def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
+    def step(self, action) -> tuple[np.ndarray, float, bool, bool, dict]:
         obs, reward, terminated, truncated, info = self.env.step(action)
         return self.preprocess(obs), reward, terminated, truncated, info
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[np.ndarray, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[np.ndarray, dict]:
         obs, info = self.env.reset(seed=seed, options=options)
         return self.preprocess(obs), info
 
 
 class AtariRescaleColour(RLEnvBase):
-    def __init__(self, env: Any) -> None:
+    def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
     def preprocess(self, frame: np.ndarray) -> np.ndarray:
-        frame = np.array(Image.fromarray(frame).resize([84, 110]))[110 - 84:, 0:84, :]
+        frame = np.array(Image.fromarray(frame).resize([84, 110]))[110 - 84 :, 0:84, :]
         return frame
 
-    def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
+    def step(self, action) -> tuple[np.ndarray, float, bool, bool, dict]:
         obs, reward, terminated, truncated, info = self.env.step(action)
         return self.preprocess(obs), reward, terminated, truncated, info
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[np.ndarray, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[np.ndarray, dict]:
         obs, info = self.env.reset(seed=seed, options=options)
         return self.preprocess(obs), info
 
@@ -118,22 +118,22 @@ class AtariRescaleColour(RLEnvBase):
 class DummyEnv(RLEnvBase):
     """No-op wrapper. Mostly useful as an explicit conversion to ``RLEnvBase``."""
 
-    def __init__(self, env: Any) -> None:
+    def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
-    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
+    def step(self, action) -> tuple[Any, float, bool, bool, dict]:
         return self.env.step(action)
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[Any, dict]:
         return self.env.reset(seed=seed, options=options)
 
 
 class NoopResetEnv(RLEnvBase):
-    def __init__(self, env: Any, max_op: int = 7) -> None:
+    def __init__(self, env, max_op: int = 7):
         self.env = _ensure_rlenv(env)
         self.max_op = max_op
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[Any, dict]:
         obs, info = self.env.reset(seed=seed, options=options)
         noops = np.random.randint(0, self.max_op)
         for _ in range(noops):
@@ -142,43 +142,43 @@ class NoopResetEnv(RLEnvBase):
                 obs, info = self.env.reset()
         return obs, info
 
-    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
+    def step(self, action) -> tuple[Any, float, bool, bool, dict]:
         return self.env.step(action)
 
 
 class ClipRewardEnv(RLEnvBase):
-    def __init__(self, env: Any) -> None:
+    def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
-    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
+    def step(self, action) -> tuple[Any, float, bool, bool, dict]:
         obs, reward, terminated, truncated, info = self.env.step(action)
         reward = np.clip(reward, -1, 1)
         return obs, reward, terminated, truncated, info
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[Any, dict]:
         return self.env.reset(seed=seed, options=options)
 
 
 class NoRewardEnv(RLEnvBase):
-    def __init__(self, env: Any) -> None:
+    def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
-    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
+    def step(self, action) -> tuple[Any, float, bool, bool, dict]:
         obs, _reward, terminated, truncated, info = self.env.step(action)
         return obs, 0, terminated, truncated, info
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[Any, dict]:
         return self.env.reset(seed=seed, options=options)
 
 
 class FireResetEnv(RLEnvBase):
-    def __init__(self, env: Any) -> None:
+    def __init__(self, env):
         """Take action on reset for environments that are fixed until firing."""
         self.env = _ensure_rlenv(env)
         assert env.unwrapped.get_action_meanings()[1] == 'FIRE'
         assert len(env.unwrapped.get_action_meanings()) >= 3
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[Any, dict]:
         self.env.reset(seed=seed, options=options)
         obs, _, terminated, truncated, _ = self.env.step(1)
         if terminated or truncated:
@@ -188,17 +188,17 @@ class FireResetEnv(RLEnvBase):
             obs, info = self.env.reset()
         return obs, info
 
-    def step(self, ac: Any) -> tuple[Any, float, bool, bool, dict]:
+    def step(self, ac) -> tuple[Any, float, bool, bool, dict]:
         return self.env.step(ac)
 
 
 class EpisodicLifeEnv(RLEnvBase):
-    def __init__(self, env: Any) -> None:
+    def __init__(self, env):
         self.env = _ensure_rlenv(env)
         self.lives = 0
         self.end_of_episode = True
 
-    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
+    def step(self, action) -> tuple[Any, float, bool, bool, dict]:
         obs, reward, terminated, truncated, info = self.env.step(action)
         self.end_of_episode = bool(terminated) or bool(truncated)
         lives = self.env.unwrapped.ale.lives()
@@ -207,7 +207,7 @@ class EpisodicLifeEnv(RLEnvBase):
         self.lives = lives
         return obs, reward, terminated, truncated, info
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[Any, dict]:
         if self.end_of_episode:
             obs, info = self.env.reset(seed=seed, options=options)
         else:
@@ -216,35 +216,35 @@ class EpisodicLifeEnv(RLEnvBase):
 
 
 class TimeLimitEnv(RLEnvBase):
-    def __init__(self, env: Any, time_limit: int) -> None:
+    def __init__(self, env, time_limit: int):
         self.env = _ensure_rlenv(env)
         self._time_limit = time_limit
         self._step = 0
 
-    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
+    def step(self, action) -> tuple[Any, float, bool, bool, dict]:
         obs, reward, terminated, truncated, info = self.env.step(action)
         self._step += 1
         if self._step > self._time_limit:
             truncated = True
         return obs, reward, terminated, truncated, info
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[Any, dict]:
         self._step = 0
         return self.env.reset(seed=seed, options=options)
 
 
 class StackEnv(RLEnvBase):
-    def __init__(self, env: Any, k: int = 4) -> None:
+    def __init__(self, env, k: int = 4):
         self.env = _ensure_rlenv(env)
         self._stacked_frames: deque[np.ndarray] = deque([], maxlen=k)
         self.k = k
 
-    def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
+    def step(self, action) -> tuple[np.ndarray, float, bool, bool, dict]:
         obs, reward, terminated, truncated, info = self.env.step(action)
         obs = self.stack_frames(obs)
         return obs, reward, terminated, truncated, info
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[np.ndarray, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[np.ndarray, dict]:
         obs, info = self.env.reset(seed=seed, options=options)
         return self.stack_frames(obs, True), info
 
@@ -258,51 +258,51 @@ class StackEnv(RLEnvBase):
 
 
 class AutoResetEnv(RLEnvBase):
-    def __init__(self, env: Any) -> None:
+    def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
-    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]:
+    def step(self, action) -> tuple[Any, float, bool, bool, dict]:
         obs, reward, terminated, truncated, info = self.env.step(action)
         if terminated or truncated:
             obs, _info = self.env.reset()
         return obs, reward, terminated, truncated, info
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[Any, dict]:
         return self.env.reset(seed=seed, options=options)
 
 
 class ChannelsFirstEnv(RLEnvBase):
-    def __init__(self, env: Any) -> None:
+    def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
-    def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
+    def step(self, action) -> tuple[np.ndarray, float, bool, bool, dict]:
         obs, reward, terminated, truncated, info = self.env.step(action)
         return obs.transpose(2, 0, 1), reward, terminated, truncated, info
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[np.ndarray, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[np.ndarray, dict]:
         obs, info = self.env.reset(seed=seed, options=options)
         return obs.transpose(2, 0, 1), info
 
 
 class GreyScaleEnv(RLEnvBase):
-    def __init__(self, env: Any) -> None:
+    def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
     def preprocess(self, frame: np.ndarray) -> np.ndarray:
         frame = np.dot(frame[..., :3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
         return frame[:, :, None]
 
-    def step(self, action: Any) -> tuple[np.ndarray, float, bool, bool, dict]:
+    def step(self, action) -> tuple[np.ndarray, float, bool, bool, dict]:
         obs, reward, terminated, truncated, info = self.env.step(action)
         return self.preprocess(obs), reward, terminated, truncated, info
 
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[np.ndarray, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[np.ndarray, dict]:
         obs, info = self.env.reset(seed=seed, options=options)
         return self.preprocess(obs), info
 
 
 class ToTorchEnv(RLEnvBase):
-    def __init__(self, env: Any, device: str = 'cuda:0') -> None:
+    def __init__(self, env, device: str = 'cuda:0'):
         self.env = _ensure_rlenv(env)
         self.device = device
 
@@ -316,15 +316,13 @@ class ToTorchEnv(RLEnvBase):
         truncated_t = torch.tensor(truncated, device=self.device)
         return obs, reward, terminated_t, truncated_t, info
 
-    def reset(
-        self, *, seed: Any = None, options: Any = None
-    ) -> tuple[torch.Tensor, dict]:
+    def reset(self, *, seed=None, options=None) -> tuple[torch.Tensor, dict]:
         obs, info = self.env.reset(seed=seed, options=options)
         return torch.from_numpy(obs).float().to(self.device), info
 
 
 def apple_pickgame(
-    env: Any,
+    env,
     k: int = 1,
     grey_scale: bool = False,
     auto_reset: bool = False,
@@ -345,7 +343,7 @@ def apple_pickgame(
 
 
 def AtariEnv(
-    env: Any,
+    env,
     k: int = 4,
     rescale: int = 84,
     episodic: bool = True,

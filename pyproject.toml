@@ -61,6 +61,9 @@ docs = [
 ]
 dev = [
     "pre-commit>=3.0",
+    "pytest>=7.0",
+    "ruff>=0.6.0",
+    "mypy>=1.8",
 ]
 
 [project.urls]
@@ -76,3 +79,94 @@ exclude = ["examples*", "docs*", "tests*"]
 
 [tool.setuptools.package-data]
 rlib = ["py.typed"]
+
+# ---------------------------------------------------------------------------
+# Ruff: linter + formatter
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [
+    "rlib.egg-info",
+    "build",
+    "dist",
+    "docs/site",
+    "site",
+    "**/*.ipynb",
+    "rlib/**/logs",
+    "rlib/**/models",
+    "rlib/**/runs",
+    "rlib/utils/experiments",
+    # Incomplete / experimental code with stub function bodies that
+    # don't even parse cleanly; explicitly excluded so we can lint the
+    # rest of the repo.
+    "rlib/Experimental",
+]
+
+[tool.ruff.lint]
+# Conservative rule set: pycodestyle errors, pyflakes, isort, pyupgrade,
+# bugbear and a few correctness/security rules. Keeps the existing
+# codebase passing while still catching real bugs in new code.
+select = ["E", "F", "I", "UP", "B", "W", "C4", "PIE", "SIM"]
+ignore = [
+    "E501",   # line length is enforced by the formatter, not the linter
+    "B008",   # function calls in default args are common in torch/gym code
+    "B905",   # zip(strict=...) is noisy in equal-length-by-construction loops
+    "UP015",  # `open(..., "r")` is fine
+    "SIM108", # ternary suggestions can hurt readability of RL math
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011", "B018"]
+"rlib/__init__.py" = ["F401"]
+"rlib/**/__init__.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["rlib"]
+
+[tool.ruff.format]
+quote-style = "preserve"
+
+# ---------------------------------------------------------------------------
+# Mypy: type checking
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+follow_imports = "silent"
+warn_redundant_casts = true
+no_implicit_optional = true
+# Project-wide leniency on annotations: most of the legacy research code
+# is unannotated. Real type errors (wrong arg types, undefined attrs,
+# bad operators, abstract instantiation) are still reported.
+disallow_untyped_defs = false
+check_untyped_defs = true
+warn_return_any = false
+exclude = '''(?x)(
+      ^build/
+    | ^dist/
+    | ^docs/
+    | ^rlib\.egg-info/
+    | ^rlib/.*/logs/
+    | ^rlib/.*/models/
+    | ^rlib/.*/runs/
+    | ^rlib/utils/experiments/
+    | ^rlib/Experimental/
+    | \.ipynb$
+)'''
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:numpy",
+    "ignore::DeprecationWarning:gym",
+]

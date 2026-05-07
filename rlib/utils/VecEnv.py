@@ -20,13 +20,15 @@ will consume it without changes.
 from __future__ import annotations
 
 import multiprocessing as mp
+from collections.abc import Callable, Iterable, Iterator
 from itertools import chain
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any
 
 import numpy as np
 
-from rlib.envs import RLEnvBase, RLVecEnv, make as _make_env, wrap as _wrap_env
-
+from rlib.envs import RLEnvBase, RLVecEnv
+from rlib.envs import make as _make_env
+from rlib.envs import wrap as _wrap_env
 
 # ---------------------------------------------------------------------------
 # Single-env subprocess wrapper
@@ -42,55 +44,55 @@ class Env:
     the legacy 4-tuple.
     """
 
-    def __init__(self, env: RLEnvBase, worker_id: int = 0) -> None:
+    def __init__(self, env: RLEnvBase, worker_id: int = 0):
         self.parent, self.child = mp.Pipe()
         self.worker = Worker(worker_id, env, self.child)
         self.worker.daemon = True
         self.worker.start()
         self.open = True
 
-    def __del__(self) -> None:
+    def __del__(self):
         self.close()
         self.parent.close()
         self.child.close()
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str):
         attribute = self._send_step('getattr', name)
         return attribute()
 
-    def _send_step(self, cmd: str, payload: Any) -> Callable[[], Any]:
+    def _send_step(self, cmd: str, payload) -> Callable[[], Any]:
         self.parent.send((cmd, payload))
         return self._recieve
 
-    def _recieve(self) -> Any:
+    def _recieve(self):
         return self.parent.recv()
 
-    def step(self, action: Any, blocking: bool = True) -> Callable[[], Any]:
+    def step(self, action, blocking: bool = True) -> Callable[[], Any]:
         return self._send_step('step', action)
 
-    def reset(self) -> Any:
+    def reset(self):
         results = self._send_step('reset', None)
         return results()
 
-    def close(self) -> None:
+    def close(self):
         if self.open:
             self.open = False
             self._send_step('close', None)
             self.worker.join()
 
-    def render(self) -> None:
+    def render(self):
         self._send_step('render', None)
 
 
 class Worker(mp.Process):
-    def __init__(self, worker_id: int, env: RLEnvBase, connection: Any) -> None:
+    def __init__(self, worker_id: int, env: RLEnvBase, connection):
         np.random.seed()
         mp.Process.__init__(self)
         self.env = _wrap_env(env)
         self.worker_id = worker_id
         self.connection = connection
 
-    def _step(self) -> None:
+    def _step(self):
         try:
             while True:
                 cmd, a = self.connection.recv()
@@ -114,7 +116,7 @@ class Worker(mp.Process):
         finally:
             self.env.close()
 
-    def run(self) -> None:
+    def run(self):
         self._step()
 
 
@@ -133,8 +135,8 @@ class BatchEnv(RLVecEnv):
         num_envs: int,
         blocking: bool = False,
         make_args: dict | None = None,
-        **env_args: Any,
-    ) -> None:
+        **env_args,
+    ):
         make_args = make_args or {}
         self.envs: list[Env] = []
         for _ in range(num_envs):
@@ -145,7 +147,7 @@ class BatchEnv(RLVecEnv):
     def __len__(self) -> int:
         return len(self.envs)
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str):
         return getattr(self.envs[0], name)
 
     def step(
@@ -164,18 +166,18 @@ class BatchEnv(RLVecEnv):
         obs = [env.reset() for env in self.envs]
         return np.stack(obs)
 
-    def close(self) -> None:
+    def close(self):
         for env in self.envs:
             env.close()
 
 
-def chunks(l: list[Any], n: int) -> Iterator[list[Any]]:
-    for i in range(0, len(l), n):
-        yield l[i:i + n]
+def chunks(seq: list[Any], n: int) -> Iterator[list[Any]]:
+    for i in range(0, len(seq), n):
+        yield seq[i : i + n]
 
 
 class ChunkEnv(RLVecEnv):
-    def __init__(self, env_id: str, num_workers: int, num_chunks: int) -> None:
+    def __init__(self, env_id: str, num_workers: int, num_chunks: int):
         self.num_workers = num_workers
         self.num_chunks = num_chunks
         self.env_id = env_id
@@ -198,7 +200,7 @@ class ChunkEnv(RLVecEnv):
     def __len__(self) -> int:
         return self.num_workers * self.num_chunks
 
-    def _send_step(self, cmd: str, actions: Any) -> Callable[[], list[Any]]:
+    def _send_step(self, cmd: str, actions) -> Callable[[], list[Any]]:
         for parent, action_chunk in zip(self.parents, chunks(actions, self.num_chunks)):
             parent.send((cmd, action_chunk))
         return self._recieve
@@ -217,12 +219,12 @@ class ChunkEnv(RLVecEnv):
         return results
 
     def reset(self) -> np.ndarray:
-        results = self._send_step('reset', np.zeros((self.num_chunks * self.num_workers)))
+        results = self._send_step('reset', np.zeros(self.num_chunks * self.num_workers))
         results = list(chain.from_iterable(results()))
         return np.stack(results)
 
-    def close(self) -> None:
-        self._send_step('close', np.zeros((self.num_chunks * self.num_workers)))
+    def close(self):
+        self._send_step('close', np.zeros(self.num_chunks * self.num_workers))
         for worker in self.workers:
             worker.join()
 
@@ -232,15 +234,15 @@ class ChunkWorker(mp.Process):
         self,
         env_id: str,
         num_chunks: int,
-        connection: Any,
+        connection,
         render: bool = False,
-    ) -> None:
+    ):
         mp.Process.__init__(self)
         self.envs = [_make_env(env_id) for _ in range(num_chunks)]
         self.connection = connection
         self.render = render
 
-    def run(self) -> None:
+    def run(self):
         while True:
             cmd, actions = self.connection.recv()
             if cmd == 'step':
@@ -279,18 +281,17 @@ class DummyBatchEnv(RLVecEnv):
         env_id: str,
         num_envs: int,
         make_args: dict | None = None,
-        **env_args: Any,
-    ) -> None:
+        **env_args,
+    ):
         make_args = make_args or {}
         self.envs: list[RLEnvBase] = [
-            env_constructor(_make_env(env_id, **make_args), **env_args)
-            for _ in range(num_envs)
+            env_constructor(_make_env(env_id, **make_args), **env_args) for _ in range(num_envs)
         ]
 
     def __len__(self) -> int:
         return len(self.envs)
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str):
         return getattr(self.envs[0], name)
 
     def step(
@@ -314,6 +315,6 @@ class DummyBatchEnv(RLVecEnv):
         obs = [env.reset()[0] for env in self.envs]
         return np.stack(obs).copy()
 
-    def close(self) -> None:
+    def close(self):
         for env in self.envs:
             env.close()

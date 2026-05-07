@@ -14,7 +14,7 @@ Example:
 from __future__ import annotations
 
 import importlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 __version__ = "3.1.0"
 
@@ -49,9 +49,21 @@ def __dir__():
 
 
 if TYPE_CHECKING:  # pragma: no cover - type checkers only
-    from rlib import A2C, A3C, PPO, DDQN, RND, RANDAL  # noqa: F401
-    from rlib import Curiosity, Unreal, DAAC, VIN  # noqa: F401
-    from rlib import envs, networks, utils  # noqa: F401
+    from rlib import (  # noqa: F401  # noqa: F401  # noqa: F401
+        A2C,
+        A3C,
+        DAAC,
+        DDQN,
+        PPO,
+        RANDAL,
+        RND,
+        VIN,
+        Curiosity,
+        Unreal,
+        envs,
+        networks,
+        utils,
+    )
 
 
 __all__ = ["__version__", *list(_LAZY_SUBMODULES.keys())]

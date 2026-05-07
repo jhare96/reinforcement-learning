@@ -13,7 +13,10 @@ Legacy ``gym`` (pre-0.26) exposes a 4-tuple ``step`` and a single-obs
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
+
+from gym import Env
 
 from rlib.envs.base import RLEnvBase
 
@@ -21,16 +24,14 @@ from rlib.envs.base import RLEnvBase
 class LegacyGymAdapter(RLEnvBase):
     """Wrap a legacy (pre-0.26) ``gym.Env`` as an :class:`~rlib.envs.RLEnv`."""
 
-    def __init__(self, env: Any) -> None:
+    def __init__(self, env: Env) -> None:
         self.env = env
 
     def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
         # Legacy gym ignores keyword args; pass only what we can.
         if seed is not None and hasattr(self.env, "seed"):
-            try:
+            with contextlib.suppress(Exception):
                 self.env.seed(seed)
-            except Exception:
-                pass
         result = self.env.reset()
         if isinstance(result, tuple) and len(result) == 2:
             # Some "legacy-ish" envs already return (obs, info).

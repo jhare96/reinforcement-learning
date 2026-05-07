@@ -1,12 +1,12 @@
 import os
 import threading
-import time
 
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
-from rlib.envs import make as make_env, wrap as wrap_env
+from rlib.envs import make as make_env
+from rlib.envs import wrap as wrap_env
 from rlib.envs.base import RLVecEnv
 
 sns.set()
@@ -14,7 +14,7 @@ sns.set()
 ep_rewards: list[float] = []
 
 
-def run_episodes(env, number_episodes: int, max_steps: int) -> None:
+def run_episodes(env, number_episodes: int, max_steps: int):
     rl_env = wrap_env(env)
     for _episode in range(number_episodes):
         _obs, _info = rl_env.reset()
@@ -28,7 +28,7 @@ def run_episodes(env, number_episodes: int, max_steps: int) -> None:
                 break
 
 
-def main() -> None:
+def main():
     env_id = 'MountainCar-v0'
     envs = [make_env(env_id) for _ in range(64)]
     num_eps = int(1e6) // 64

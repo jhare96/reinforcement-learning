@@ -13,11 +13,11 @@ TensorBoard logs land in ``logs/A2C/CartPole`` and model checkpoints in
 
 from __future__ import annotations
 
+import gymnasium as gym
 import torch
 
 from rlib.A2C import A2C, ActorCritic
 from rlib.utils.VecEnv import DummyBatchEnv
-import gymnasium as gym
 
 
 class MLP(torch.nn.Module):

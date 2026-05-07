@@ -24,10 +24,11 @@ PettingZoo single-agent slices, EnvPool, an in-house simulator — with
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from rlib.envs.base import RLEnv, RLEnvBase
 from rlib.envs.adapters import GymnasiumAdapter, LegacyGymAdapter
+from rlib.envs.base import RLEnvBase
 
 __all__ = ["make", "register_backend", "wrap"]
 
@@ -65,11 +66,8 @@ def register_backend(
 def _looks_like_gymnasium(env: Any) -> bool:
     """Heuristic: env is a Gymnasium-style 5-tuple stepper."""
     cls_path = type(env).__module__
-    if cls_path.startswith("gymnasium"):
-        return True
-    # Duck-type: assume gymnasium if reset signature accepts ``seed``
-    # and there's a ``spec`` attribute pointing to a modern object.
-    return False
+    # Duck-type: a real gymnasium env's class lives in the gymnasium package.
+    return cls_path.startswith("gymnasium")
 
 
 def _looks_like_legacy_gym(env: Any) -> bool:
@@ -95,16 +93,13 @@ def wrap(env: Any, *, backend: str = "auto") -> RLEnvBase:
     if backend != "auto":
         for name, _pred, adapter_cls in _Backends:
             if name == backend:
-                return adapter_cls(env)
-        raise ValueError(
-            f"Unknown backend {backend!r}. "
-            f"Registered: {[n for n, _, _ in _Backends]}"
-        )
+                return adapter_cls(env)  # type: ignore[call-arg]
+        raise ValueError(f"Unknown backend {backend!r}. Registered: {[n for n, _, _ in _Backends]}")
 
     for _name, predicate, adapter_cls in _Backends:
         try:
             if predicate(env):
-                return adapter_cls(env)
+                return adapter_cls(env)  # type: ignore[call-arg]
         except Exception:
             continue
 

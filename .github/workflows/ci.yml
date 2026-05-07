@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches: [master, v3]
+  pull_request:
+    branches: [master, v3]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Modules that mypy is expected to keep strictly typed. Lint/format
+  # run across the whole repository (excluded paths are configured in
+  # pyproject.toml).
+  TYPECHECK_PATHS: >-
+    rlib/envs
+    rlib/utils/schedulers.py
+
+jobs:
+  lint:
+    name: ruff (lint + format)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install ruff
+        run: |
+          python -m pip install --upgrade pip
+          pip install "ruff>=0.6.0"
+
+      - name: Ruff lint (whole repo)
+        run: ruff check .
+
+      - name: Ruff format check (whole repo)
+        run: ruff format --check .
+
+  typecheck:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Upgrade pip tooling
+        run: python -m pip install --upgrade pip
+
+      # We install rlib so mypy can resolve first-party imports. Use the
+      # `[classic]` extra to pull in gymnasium with classic-control deps
+      # (needed by `rlib.envs` import-time backend registration).
+      - name: Install rlib + mypy
+        run: |
+          pip install -e ".[classic]"
+          pip install "mypy>=1.8"
+
+      - name: Run mypy
+        run: mypy $TYPECHECK_PATHS
+
+  test:
+    name: pytest (py${{ matrix.python-version }})
+    needs: [lint, typecheck]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements.txt
+
+      - name: Upgrade pip tooling
+        run: python -m pip install --upgrade pip setuptools wheel
+
+      - name: Install rlib (with classic-control + dev extras)
+        run: pip install -e ".[classic,dev]"
+
+      - name: Show installed versions
+        run: |
+          python -c "import sys, torch, numpy, gymnasium; \
+            print('python', sys.version); \
+            print('torch', torch.__version__); \
+            print('numpy', numpy.__version__); \
+            print('gymnasium', gymnasium.__version__)"
+
+      - name: Run pytest
+        run: pytest -ra --color=yes
+
+  build:
+    name: build sdist + wheel
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build twine
+
+      - name: Build distribution
+        run: python -m build
+
+      - name: Check distribution metadata
+        run: twine check dist/*
+
+      - name: Upload distribution artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14

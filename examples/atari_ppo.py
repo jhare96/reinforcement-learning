@@ -21,10 +21,11 @@ from __future__ import annotations
 
 import sys
 
-from rlib.PPO import PPO, PPOTrainer
-from rlib.networks.networks import UniverseCNN
-from rlib.utils.VecEnv import BatchEnv
 import gymnasium as gym
+
+from rlib.networks.networks import UniverseCNN
+from rlib.PPO import PPO, PPOTrainer
+from rlib.utils.VecEnv import BatchEnv
 from rlib.utils.wrappers import AtariEnv
 
 
@@ -38,10 +39,20 @@ def main(env_id: str = "SpaceInvadersDeterministic-v4") -> None:
     action_size = probe.action_space.n
     probe.close()
 
-    train_envs = BatchEnv(AtariEnv, env_id, num_envs=num_envs, blocking=False,
-                          k=4, episodic=True, reset=False, clip_reward=True)
-    val_envs = [AtariEnv(gym.make(env_id), k=4, episodic=False, reset=False, clip_reward=False)
-                for _ in range(4)]
+    train_envs = BatchEnv(
+        AtariEnv,
+        env_id,
+        num_envs=num_envs,
+        blocking=False,
+        k=4,
+        episodic=True,
+        reset=False,
+        clip_reward=True,
+    )
+    val_envs = [
+        AtariEnv(gym.make(env_id), k=4, episodic=False, reset=False, clip_reward=False)
+        for _ in range(4)
+    ]
 
     model = PPO(
         UniverseCNN,

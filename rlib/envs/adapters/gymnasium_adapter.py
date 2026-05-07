@@ -14,13 +14,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from gymnasium import Env
+
 from rlib.envs.base import RLEnvBase
 
 
 class GymnasiumAdapter(RLEnvBase):
     """Wrap a ``gymnasium.Env`` as an :class:`~rlib.envs.RLEnv`."""
 
-    def __init__(self, env: Any) -> None:
+    def __init__(self, env: Env) -> None:
         self.env = env
 
     def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]:
