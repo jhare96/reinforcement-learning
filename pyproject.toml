@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rlib"
+version = "3.0.0"
+description = "A small PyTorch-based reinforcement learning library (A2C, PPO, DDQN, RND, UNREAL, RANDAL, ...)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Joshua Hare" },
+]
+keywords = [
+    "reinforcement-learning",
+    "deep-learning",
+    "pytorch",
+    "ppo",
+    "a2c",
+    "ddqn",
+    "rnd",
+    "unreal",
+    "sparse-rewards",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=1.13",
+    "numpy>=1.21",
+    "gymnasium>=0.29",
+    "Pillow>=9.0",
+    "tensorboard>=2.10",
+]
+
+[project.optional-dependencies]
+atari = [
+    "gymnasium[atari,accept-rom-license]>=0.29",
+    "opencv-python>=4.5",
+]
+classic = [
+    "gymnasium[classic-control]>=0.29",
+]
+mujoco = [
+    "gymnasium[mujoco]>=0.29",
+]
+docs = [
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.0",
+]
+dev = [
+    "pre-commit>=3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/jhare96/reinforcement-learning"
+Repository = "https://github.com/jhare96/reinforcement-learning"
+Issues = "https://github.com/jhare96/reinforcement-learning/issues"
+Changelog = "https://github.com/jhare96/reinforcement-learning/blob/master/CHANGELOG.md"
+"Reference paper" = "https://arxiv.org/abs/1910.09281"
+
+[tool.setuptools.packages.find]
+include = ["rlib*"]
+exclude = ["examples*", "docs*", "tests*"]
+
+[tool.setuptools.package-data]
+rlib = ["py.typed"]

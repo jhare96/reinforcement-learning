@@ -1,5 +1,5 @@
 import torch
-import gym
+from rlib.utils.gym_compat import gym
 import numpy as np
 import time, datetime
 

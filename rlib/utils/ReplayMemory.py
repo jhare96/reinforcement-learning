@@ -1,5 +1,5 @@
 import numpy as np 
-import gym
+from rlib.utils.gym_compat import gym
 import time, copy
 import scipy.misc
 from collections import deque

@@ -1,4 +1,4 @@
-import gym 
+from rlib.utils.gym_compat import gym, step_compat, reset_compat
 import pygame
 import matplotlib.pyplot as plt
 #from gym.utils import play
@@ -61,7 +61,7 @@ def play(env, transpose=True, fps=30, zoom=None, callback=None, keys_to_action=N
             }
         If None, default key_to_action mapping for that env is used, if provided.
     """
-    env.reset()
+    reset_compat(env)
     rendered=env.render( mode='rgb_array')
 
     if keys_to_action is None:
@@ -89,11 +89,11 @@ def play(env, transpose=True, fps=30, zoom=None, callback=None, keys_to_action=N
     while running:
         if env_done:
             env_done = False
-            obs = env.reset()
+            obs = reset_compat(env)
         else:
             action = keys_to_action.get(tuple(sorted(pressed_keys)), 0)
             prev_obs = obs
-            obs, rew, env_done, info = env.step(action)
+            obs, rew, env_done, info = step_compat(env, action)
             if callback is not None:
                 callback(prev_obs, obs, action, rew, env_done, info)
         if obs is not None:

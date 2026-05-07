@@ -1,10 +1,15 @@
-import gym 
+from rlib.utils.gym_compat import gym, step_compat, reset_compat
 import numpy as np
 from PIL import Image
 from collections import deque
 import torch
 
 # Code was inspired from or modified from OpenAI baselines https://github.com/openai/baselines/tree/master/baselines/common
+#
+# All wrappers expose the legacy 4-tuple step API ``(obs, reward, done, info)``
+# and a single-observation ``reset()`` regardless of whether the underlying
+# environment is a Gymnasium (5-tuple) or legacy Gym (4-tuple) env. The
+# translation is handled by :mod:`rlib.utils.gym_compat`.
 
 
 def AtariValidate(env):
@@ -24,11 +29,11 @@ class RescaleEnv(gym.Wrapper):
         return frame[:,:,np.newaxis]
 
     def step(self, action):
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = step_compat(self.env, action)
         return self.preprocess(obs), reward, done, info
     
     def reset(self, **kwargs):
-        obs = self.env.reset(**kwargs)
+        obs = reset_compat(self.env, **kwargs)
         return self.preprocess(obs)
 
 
@@ -43,11 +48,11 @@ class AtariRescale42x42(gym.Wrapper):
         return frame[:,:,np.newaxis]
 
     def step(self, action):
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = step_compat(self.env, action)
         return self.preprocess(obs), reward, done, info
     
     def reset(self, **kwargs):
-        obs = self.env.reset(**kwargs)
+        obs = reset_compat(self.env, **kwargs)
         return self.preprocess(obs)
 
 class AtariRescaleEnv(gym.Wrapper):
@@ -60,11 +65,11 @@ class AtariRescaleEnv(gym.Wrapper):
         return frame[:,:,np.newaxis]
 
     def step(self, action):
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = step_compat(self.env, action)
         return self.preprocess(obs), reward, done, info
     
     def reset(self, **kwargs):
-        obs = self.env.reset(**kwargs)
+        obs = reset_compat(self.env, **kwargs)
         return self.preprocess(obs)
 
 class AtariRescaleColour(gym.Wrapper):
@@ -76,11 +81,11 @@ class AtariRescaleColour(gym.Wrapper):
         return frame
 
     def step(self, action):
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = step_compat(self.env, action)
         return self.preprocess(obs), reward, done, info
     
     def reset(self, **kwargs):
-        obs = self.env.reset(**kwargs)
+        obs = reset_compat(self.env, **kwargs)
         return self.preprocess(obs)
 
 
@@ -88,9 +93,9 @@ class DummyEnv(gym.Wrapper):
     def __init__(self, env):
         gym.Wrapper.__init__(self, env)
     def step(self, action):
-        return self.env.step(action)
+        return step_compat(self.env, action)
     def reset(self, **kwargs):
-        return self.env.reset(**kwargs)
+        return reset_compat(self.env, **kwargs)
 
 class NoopResetEnv(gym.Wrapper):
     def __init__(self, env, max_op=7):
@@ -98,37 +103,37 @@ class NoopResetEnv(gym.Wrapper):
         self.max_op = max_op
 
     def reset(self, **kwargs):
-        obs = self.env.reset(**kwargs)
+        obs = reset_compat(self.env, **kwargs)
         noops = np.random.randint(0, self.max_op)
         for i in range(noops):
-            obs, reward, done, info = self.env.step(0)
+            obs, reward, done, info = step_compat(self.env, 0)
         return obs
     
     def step(self, action):
-        return self.env.step(action)
+        return step_compat(self.env, action)
 
 class ClipRewardEnv(gym.Wrapper):
     def __init__(self, env):
         gym.Wrapper.__init__(self, env)
     
     def step(self, action):
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = step_compat(self.env, action)
         reward = np.clip(reward, -1, 1)
         return obs, reward, done, info
     
     def reset(self, **kwargs):
-        return self.env.reset(**kwargs)
+        return reset_compat(self.env, **kwargs)
 
 class NoRewardEnv(gym.Wrapper):
     def __init__(self, env):
         gym.Wrapper.__init__(self, env)
     
     def step(self, action):
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = step_compat(self.env, action)
         return obs, 0, done, info
     
     def reset(self, **kwargs):
-        return self.env.reset(**kwargs)
+        return reset_compat(self.env, **kwargs)
     
 class FireResetEnv(gym.Wrapper):
     def __init__(self, env):
@@ -138,17 +143,17 @@ class FireResetEnv(gym.Wrapper):
         assert len(env.unwrapped.get_action_meanings()) >= 3
 
     def reset(self, **kwargs):
-        self.env.reset(**kwargs)
-        obs, _, done, _ = self.env.step(1)
+        reset_compat(self.env, **kwargs)
+        obs, _, done, _ = step_compat(self.env, 1)
         if done:
-            self.env.reset(**kwargs)
-        obs, _, done, _ = self.env.step(2)
+            reset_compat(self.env, **kwargs)
+        obs, _, done, _ = step_compat(self.env, 2)
         if done:
-            self.env.reset(**kwargs)
+            reset_compat(self.env, **kwargs)
         return obs
 
     def step(self, ac):
-        return self.env.step(ac)
+        return step_compat(self.env, ac)
 
 class EpisodicLifeEnv(gym.Wrapper):
     def __init__(self, env):
@@ -158,7 +163,7 @@ class EpisodicLifeEnv(gym.Wrapper):
     
 
     def step(self, action):
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = step_compat(self.env, action)
         self.end_of_episode = done 
         lives = self.env.unwrapped.ale.lives()
         if lives < self.lives:
@@ -168,9 +173,9 @@ class EpisodicLifeEnv(gym.Wrapper):
     
     def reset(self, **kwargs):
         if self.end_of_episode:
-            obs = self.env.reset(**kwargs)
+            obs = reset_compat(self.env, **kwargs)
         else:
-            obs, _, _, _ = self.env.step(0)
+            obs, _, _, _ = step_compat(self.env, 0)
         return obs
 
 class TimeLimitEnv(gym.Wrapper):
@@ -180,7 +185,7 @@ class TimeLimitEnv(gym.Wrapper):
         self._step = 0
     
     def step(self, action):
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = step_compat(self.env, action)
         self._step += 1
         if self._step > self._time_limit:
             done = True
@@ -188,7 +193,7 @@ class TimeLimitEnv(gym.Wrapper):
     
     def reset(self, **kwargs):
         self._step = 0
-        return self.env.reset(**kwargs)
+        return reset_compat(self.env, **kwargs)
 
 
 
@@ -200,12 +205,12 @@ class StackEnv(gym.Wrapper):
         self.k = k
 
     def step(self, action):
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = step_compat(self.env, action)
         obs = self.stack_frames(obs)
         return obs, reward, done, info
     
     def reset(self, **kwargs):
-        obs = self.env.reset(**kwargs)
+        obs = reset_compat(self.env, **kwargs)
         return self.stack_frames(obs, True)
 
     
@@ -223,9 +228,9 @@ class AutoResetEnv(gym.Wrapper):
         gym.Wrapper.__init__(self, env)
 
     def step(self, action):
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = step_compat(self.env, action)
         if done:
-            obs = self.env.reset()
+            obs = reset_compat(self.env)
         return obs, reward, done, info
 
 class ChannelsFirstEnv(gym.Wrapper):
@@ -233,11 +238,11 @@ class ChannelsFirstEnv(gym.Wrapper):
         gym.Wrapper.__init__(self, env)
 
     def step(self, action):
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = step_compat(self.env, action)
         return obs.transpose(2, 0, 1), reward, done, info
 
     def reset(self, **kwargs):
-        obs = self.env.reset(**kwargs)
+        obs = reset_compat(self.env, **kwargs)
         return obs.transpose(2, 0, 1)
 
 class GreyScaleEnv(gym.Wrapper):
@@ -249,11 +254,11 @@ class GreyScaleEnv(gym.Wrapper):
         return frame[:,:,None]
 
     def step(self, action):
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = step_compat(self.env, action)
         return self.preprocess(obs), reward, done, info
     
     def reset(self, **kwargs):
-        obs = self.env.reset(**kwargs)
+        obs = reset_compat(self.env, **kwargs)
         return self.preprocess(obs)
 
 class ToTorchEnv(gym.Wrapper):
@@ -262,14 +267,14 @@ class ToTorchEnv(gym.Wrapper):
         self.device = device
 
     def step(self, action:torch.Tensor):
-        obs, reward, done, info = self.env.step(action.cpu().numpy())
+        obs, reward, done, info = step_compat(self.env, action.cpu().numpy())
         obs = torch.from_numpy(obs).float().to(self.device)
         reward = torch.tensor(reward, device=self.device, dtype=torch.float32)
         done = torch.tensor(done, device=self.device)
         return obs, reward, done, info
 
     def reset(self, **kwargs):
-        obs = self.env.reset(**kwargs)
+        obs = reset_compat(self.env, **kwargs)
         return torch.from_numpy(obs).float().to(self.device)
 
 def apple_pickgame(env, k=1, grey_scale=False, auto_reset=False, max_steps=1000, channels_first=True):

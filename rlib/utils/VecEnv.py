@@ -1,5 +1,5 @@
 import numpy as np
-import gym
+from rlib.utils.gym_compat import gym, step_compat, reset_compat
 import multiprocessing as mp
 from itertools import chain
 
@@ -56,7 +56,6 @@ class Env(object):
     
 class Worker(mp.Process):
     def __init__(self, worker_id, env, connection):
-        import gym
         np.random.seed()
         mp.Process.__init__(self)
         self.env = env #gym.make(env_id)
@@ -68,14 +67,14 @@ class Worker(mp.Process):
             while True:
                 cmd, a = self.connection.recv()
                 if cmd == 'step':
-                    obs, r, done, info = self.env.step(a)
+                    obs, r, done, info = step_compat(self.env, a)
                     # auto_reset moved to env wrappers 
                     self.connection.send((obs,r,done,info))
                 elif cmd == 'render':
                     self.env.render()
                     #self.connection.send((1))
                 elif cmd == 'reset':
-                    obs = self.env.reset()
+                    obs = reset_compat(self.env)
                     self.connection.send(obs)
                 elif cmd == 'getattr':
                     self.connection.send(getattr(self.env, a))
@@ -121,7 +120,7 @@ class BatchEnv(object):
         return np.stack(obs), np.stack(rewards), np.stack(done), info
     
     def reset(self):
-        obs = [env.reset() for env in self.envs]
+        obs = [reset_compat(env) for env in self.envs]
         return np.stack(obs)
     
     def close(self):
@@ -201,7 +200,7 @@ class ChunkWorker(mp.Process):
             if cmd == 'step':
                 results = []
                 for a, env in zip(actions,self.envs):
-                    obs, r, done, info = env.step(a)
+                    obs, r, done, info = step_compat(env, a)
                     # auto_reset moved to env wrappers
                     if self.render:
                         self.env.render()
@@ -210,7 +209,7 @@ class ChunkWorker(mp.Process):
             elif cmd == 'reset':
                 results = []
                 for a, env in zip(actions,self.envs):
-                    obs = env.reset()
+                    obs = reset_compat(env)
                     results.append(obs)
                 self.connection.send(results)
             elif cmd == 'close':
@@ -231,12 +230,12 @@ class DummyBatchEnv(object):
         return getattr(self.envs[0], name)
 
     def step(self,actions):
-        results = [env.step(action) for env, action in zip(self.envs,actions)]
+        results = [step_compat(env, action) for env, action in zip(self.envs,actions)]
         obs, rewards, done, info = zip(*results)
         return np.stack(obs).copy(), np.stack(rewards).copy(), np.stack(done).copy(), info
     
     def reset(self):
-        obs = [env.reset() for env in self.envs]
+        obs = [reset_compat(env) for env in self.envs]
         return np.stack(obs).copy()
     
     def close(self):

@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import scipy
-import gym
+from rlib.utils.gym_compat import gym
 import os, time
 import threading
 from rlib.A2C.A2C import ActorCritic

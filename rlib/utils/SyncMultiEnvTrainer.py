@@ -302,12 +302,13 @@ class SyncMultiEnvTrainer(object):
     
     def _validate_async(self, env, num_ep, max_steps, render=False):
         'single env validation'
+        from rlib.utils.gym_compat import step_compat, reset_compat
         for episode in range(num_ep):
-            state = env.reset()
+            state = reset_compat(env)
             episode_score = []
             for t in range(max_steps):
                 action = self.get_action(state[np.newaxis])
-                next_state, reward, done, info = env.step(action)
+                next_state, reward, done, info = step_compat(env, action)
                 state = next_state
                 #print('state', state, 'action', action, 'reward', reward)
 

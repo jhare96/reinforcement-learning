@@ -1,5 +1,5 @@
 import numpy as np 
-import gym 
+from rlib.utils.gym_compat import gym, step_compat, reset_compat
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os, time
@@ -10,11 +10,11 @@ ep_rewards = []
 
 def run_episodes(env, number_episodes, max_steps):
     for episode in range(number_episodes):
-        obs = env.reset()
+        obs = reset_compat(env)
         ep_score = 0
         for t in range(max_steps):
             action = env.action_space.sample()
-            obs, r, done, info = env.step(action)
+            obs, r, done, info = step_compat(env, action)
             ep_score += r
 
             if done:

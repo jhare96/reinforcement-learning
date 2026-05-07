@@ -1,7 +1,7 @@
 import numpy as np
 import torch 
 import torch.nn.functional as F
-import gym
+from rlib.utils.gym_compat import gym
 import time, datetime
 
 from rlib.RND.RND import PPOIntrinsic, PredictorCNN, PredictorMLP, RewardForwardFilter

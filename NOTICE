@@ -1,0 +1,25 @@
+rlib
+Copyright 2019-2026 Joshua Hare
+
+This product includes software developed by Joshua Hare and contributors.
+
+Portions of this code (notably the Atari environment wrappers in
+``rlib/utils/wrappers.py`` and the vectorised environment runner in
+``rlib/utils/VecEnv.py``) were inspired by or adapted from OpenAI Baselines
+(https://github.com/openai/baselines), which is distributed under the MIT
+License. A copy of the MIT License notice is reproduced below for reference:
+
+    The MIT License
+
+    Copyright (c) 2017 OpenAI (http://openai.com)
+
+    Permission is hereby granted, free of charge, to any person obtaining
+    a copy of this software and associated documentation files (the
+    "Software"), to deal in the Software without restriction, including
+    without limitation the rights to use, copy, modify, merge, publish,
+    distribute, sublicense, and/or sell copies of the Software, and to
+    permit persons to whom the Software is furnished to do so, subject to
+    the following conditions:
+
+    The above copyright notice and this permission notice shall be included
+    in all copies or substantial portions of the Software.

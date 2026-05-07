@@ -1,4 +1,4 @@
-import gym
+from rlib.utils.gym_compat import gym
 import torch
 import torch.multiprocessing as mp
 import torch.nn.functional as F
