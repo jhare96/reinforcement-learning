@@ -1,0 +1,3 @@
+# Curiosity
+
+::: rlib.Curiosity

@@ -1,0 +1,72 @@
+site_name: rlib
+site_description: A small PyTorch reinforcement learning library
+site_author: Joshua Hare
+repo_url: https://github.com/jhare96/reinforcement-learning
+repo_name: jhare96/reinforcement-learning
+edit_uri: edit/master/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+
+nav:
+  - Home: index.md
+  - Agents: agents.md
+  - Environments: environments.md
+  - Wrappers: wrappers.md
+  - API reference:
+      - Agent base: api/agent.md
+      - Agents:
+          - A2C: api/a2c.md
+          - DDQN: api/ddqn.md
+          - PPO: api/ppo.md
+          - RND: api/rnd.md
+          - RANDAL: api/randal.md
+          - Curiosity (ICM): api/curiosity.md
+          - UNREAL: api/unreal.md
+          - DAAC: api/daac.md
+          - VIN: api/vin.md
+      - Training: api/training.md
+      - Environments: api/envs.md
+      - Models: api/models.md
+      - Utils: api/utils.md
+  - Changelog: changelog.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [.]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
+            merge_init_into_class: true
+            filters: ["!^_"]
+            inherited_members: false
+            heading_level: 2
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path:
+        - .
+        - docs
+      check_paths: true

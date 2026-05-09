@@ -1,0 +1,173 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rlib"
+version = "3.0.0"
+description = "A small PyTorch-based reinforcement learning library (A2C, PPO, DDQN, RND, UNREAL, RANDAL, ...)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Joshua Hare" },
+]
+keywords = [
+    "reinforcement-learning",
+    "deep-learning",
+    "pytorch",
+    "ppo",
+    "a2c",
+    "ddqn",
+    "rnd",
+    "unreal",
+    "sparse-rewards",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=1.13",
+    "numpy>=1.21",
+    "gymnasium>=0.29",
+    "Pillow>=9.0",
+    "tensorboard>=2.10",
+    "PyYAML>=6.0",
+    "tqdm>=4.60",
+]
+
+[project.optional-dependencies]
+atari = [
+    "gymnasium[atari,accept-rom-license]>=0.29",
+    "opencv-python>=4.5",
+]
+classic = [
+    "gymnasium[classic-control]>=0.29",
+]
+mujoco = [
+    "gymnasium[mujoco]>=0.29",
+]
+docs = [
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.0",
+    "mkdocstrings[python]>=0.24",
+]
+dev = [
+    "pre-commit>=3.0",
+    "pytest>=7.0",
+    "ruff>=0.6.0",
+    "mypy>=1.8",
+]
+
+[project.urls]
+Homepage = "https://github.com/jhare96/reinforcement-learning"
+Repository = "https://github.com/jhare96/reinforcement-learning"
+Issues = "https://github.com/jhare96/reinforcement-learning/issues"
+Changelog = "https://github.com/jhare96/reinforcement-learning/blob/master/CHANGELOG.md"
+"Reference paper" = "https://arxiv.org/abs/1910.09281"
+
+[tool.setuptools.packages.find]
+include = ["rlib*"]
+exclude = ["examples*", "docs*", "tests*"]
+
+[tool.setuptools.package-data]
+rlib = ["py.typed"]
+
+# ---------------------------------------------------------------------------
+# Ruff: linter + formatter
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+    "rlib.egg-info",
+    "build",
+    "dist",
+    "docs/site",
+    "site",
+    "**/*.ipynb",
+    "rlib/**/logs",
+    "rlib/**/models",
+    "rlib/**/runs",
+    "rlib/utils/experiments",
+    # Incomplete / experimental code with stub function bodies that
+    # don't even parse cleanly; explicitly excluded so we can lint the
+    # rest of the repo.
+    "rlib/Experimental",
+]
+
+[tool.ruff.lint]
+# Conservative rule set: pycodestyle errors, pyflakes, isort, pyupgrade,
+# bugbear and a few correctness/security rules. Keeps the existing
+# codebase passing while still catching real bugs in new code.
+select = ["E", "F", "I", "UP", "B", "W", "C4", "PIE", "SIM"]
+ignore = [
+    "E501",   # line length is enforced by the formatter, not the linter
+    "B008",   # function calls in default args are common in torch/gym code
+    "B905",   # zip(strict=...) is noisy in equal-length-by-construction loops
+    "UP015",  # `open(..., "r")` is fine
+    "SIM108", # ternary suggestions can hurt readability of RL math
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011", "B018"]
+"rlib/__init__.py" = ["F401"]
+"rlib/**/__init__.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["rlib"]
+
+[tool.ruff.format]
+quote-style = "preserve"
+
+# ---------------------------------------------------------------------------
+# Mypy: type checking
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+follow_imports = "silent"
+warn_redundant_casts = true
+no_implicit_optional = true
+# Project-wide leniency on annotations: most of the legacy research code
+# is unannotated. Real type errors (wrong arg types, undefined attrs,
+# bad operators, abstract instantiation) are still reported.
+disallow_untyped_defs = false
+check_untyped_defs = true
+warn_return_any = false
+exclude = '''(?x)(
+      ^build/
+    | ^dist/
+    | ^docs/
+    | ^rlib\.egg-info/
+    | ^rlib/.*/logs/
+    | ^rlib/.*/models/
+    | ^rlib/.*/runs/
+    | ^rlib/utils/experiments/
+    | ^rlib/Experimental/
+    | \.ipynb$
+)'''
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:numpy",
+]

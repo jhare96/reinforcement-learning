@@ -145,6 +145,7 @@ cython_debug/
 *.pages
 *.rtf
 *.txt
+!requirements*.txt
 *.wpd
 *.wps
 
@@ -187,3 +188,18 @@ dist
 *.pyo
 *.tmp*
 .vscode
+
+# rlib local artifacts
+rlib/**/logs/
+rlib/**/models/
+rlib/**/runs/
+rlib/**/__pycache__/
+rlib/utils/experiments/
+rlib/Experimental/
+rlib/Untitled.ipynb
+rlib/batch*.ipynb
+rlib/.ipynb_checkpoints/
+rlib/**/*.png
+rlib/**/obs_convolved.png
+rlib/utils/test.py
+rlib/A2C/.ipynb_checkpoints/
