@@ -16,7 +16,7 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING, Any
 
-__version__ = "3.1.0"
+__version__ = "3.0.0"
 
 # Mapping of attribute name -> dotted submodule path
 _LAZY_SUBMODULES = {

@@ -1,23 +1,19 @@
 # Wrappers
 
-`rlib.utils.wrappers` provides a small set of environment wrappers,
+`rlib.envs.wrappers` provides a small set of environment wrappers,
 inspired by (and originally adapted from) the OpenAI Baselines wrappers.
 
 All wrappers subclass
-[`rlib.envs.RLEnvBase`](https://github.com/jhare96/reinforcement-learning/blob/master/rlib/envs/base.py)
+[`rlib.envs.RLEnv`](api/envs.md)
 and use the **modern 5-tuple step API** —
 `(obs, reward, terminated, truncated, info)` — together with
-`reset(*, seed=None, options=None) -> (obs, info)`. Backend translation
-(legacy gym 4-tuple, `dm_env`, ...) lives once in
-[`rlib.envs.adapters`](https://github.com/jhare96/reinforcement-learning/tree/master/rlib/envs/adapters);
-from a wrapper's point of view, the underlying env is always canonical.
+`reset(*, seed=None, options=None) -> (obs, info)`.
 
 The 5→4-tuple collapse for agent rollout code happens at a single
-boundary inside the vectorised env runners
-([`rlib.utils.VecEnv.RLVecEnv`](https://github.com/jhare96/reinforcement-learning/blob/master/rlib/envs/base.py)),
-so existing `(obs, rewards, dones, infos) = env.step(actions)` agent code
-keeps working unchanged. Truncations are surfaced as
-`info["TimeLimit.truncated"]`.
+boundary inside the vectorised env runners (`RLVecEnv.merge_done` /
+`merge_info`), so existing
+`(obs, rewards, dones, infos) = env.step(actions)` agent code keeps
+working unchanged.
 
 ## Reference
 

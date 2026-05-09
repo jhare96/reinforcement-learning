@@ -1,7 +1,7 @@
 # rlib — a small PyTorch reinforcement learning library
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://github.com/jhare96/reinforcement-learning/blob/master/pyproject.toml)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://github.com/jhare96/reinforcement-learning/blob/master/pyproject.toml)
 [![PyTorch](https://img.shields.io/badge/PyTorch-1.13%2B-EE4C2C.svg)](https://pytorch.org/)
 [![Gymnasium](https://img.shields.io/badge/Gymnasium-0.29%2B-007ACC.svg)](https://gymnasium.farama.org/)
 
@@ -42,55 +42,70 @@ pip install -e ".[mujoco]"    # MuJoCo continuous-control envs
 pip install -e ".[docs]"      # Build the local documentation
 ```
 
-`rlib` targets **Python 3.10+**, **PyTorch 1.13+** and
-[**Gymnasium**](https://gymnasium.farama.org/) (the maintained successor to
-OpenAI Gym). The :mod:`rlib.envs` package provides a backend-agnostic env
-abstraction (`RLEnv` Protocol, `RLEnvBase` ABC, `make`/`wrap`/`register_backend`)
-so the library also works against legacy `gym` and is easy to extend to other
-gym-like backends.
+`rlib` targets **Python 3.11+**, **PyTorch 1.13+** and
+[**Gymnasium**](https://gymnasium.farama.org/) 0.29+. The `rlib.envs`
+package provides the canonical 5-tuple env contract (`RLEnv` ABC,
+`RLVecEnv` ABC, `BatchEnv` / `DummyBatchEnv` runners, `AtariEnv` /
+classic-control wrappers).
 
 A `Dockerfile` is provided for fully-reproducible setups (see below).
 
 ## Quickstart
 
-Train an A2C agent on CartPole-v1 in ~40 lines (see [`examples/cartpole_a2c.py`](https://github.com/jhare96/reinforcement-learning/blob/master/examples/cartpole_a2c.py)
+The fastest way to train an agent is the YAML CLI — every agent module is
+runnable as `python -m rlib.<Agent> path/to/config.yaml`:
+
+```bash
+python -m rlib.A2C  examples/paper/configs/classic_a2c.yaml
+python -m rlib.PPO  examples/paper/configs/atari_ppo.yaml
+python -m rlib.RND  examples/paper/configs/atari_rnd.yaml
+```
+
+Override any field on the command line:
+
+```bash
+python -m rlib.A2C examples/paper/configs/classic_a2c.yaml \
+    --set env.id=Acrobot-v1 \
+    --set trainer.config.total_steps=1_000_000 \
+    --set agent.config.lr=3e-4
+```
+
+Or drive everything from Python (see
+[`examples/cartpole_a2c.py`](https://github.com/jhare96/reinforcement-learning/blob/master/examples/cartpole_a2c.py)
 for the runnable version):
 
 ```python
 import torch
-from rlib.A2C import A2C, ActorCritic
-from rlib.utils.VecEnv import DummyBatchEnv
 import gymnasium as gym
 
-
-class MLP(torch.nn.Module):
-    """A tiny MLP body for low-dimensional state spaces."""
-    def __init__(self, input_size, hidden_size=64):
-        super().__init__()
-        in_dim = int(input_size[0]) if hasattr(input_size, "__len__") else int(input_size)
-        self.dense_size = hidden_size
-        self.net = torch.nn.Sequential(
-            torch.nn.Linear(in_dim, hidden_size), torch.nn.Tanh(),
-            torch.nn.Linear(hidden_size, hidden_size), torch.nn.Tanh(),
-        )
-    def forward(self, x): return self.net(x)
-
+from rlib.A2C import A2C, A2CConfig, ActorCritic
+from rlib.envs import DummyBatchEnv
+from rlib.models import MLP
+from rlib.training import TrainerConfig
 
 env_id, num_envs = "CartPole-v1", 8
 train_envs = DummyBatchEnv(lambda e: e, env_id, num_envs=num_envs)
-val_envs   = [gym.make(env_id) for _ in range(4)]
+val_envs = [gym.make(env_id) for _ in range(4)]
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
-model = ActorCritic(
+agent = ActorCritic(
     MLP,
-    input_size=train_envs.envs[0].observation_space.shape,
-    action_size=train_envs.envs[0].action_space.n,
-    lr=7e-4, decay_steps=int(1e5), grad_clip=0.5,
-    device="cuda" if torch.cuda.is_available() else "cpu",
+    input_shape=train_envs.observation_space.shape,
+    action_size=train_envs.action_space.n,
+    config=A2CConfig(lr=7e-4, decay_steps=int(1e5), grad_clip=0.5, device=device),
 )
 
-A2C(envs=train_envs, model=model, val_envs=val_envs,
-    total_steps=int(1e5), nsteps=5, validate_freq=int(2e4),
-    log_dir="logs/A2C/CartPole", model_dir="models/A2C/CartPole",
+A2C(
+    envs=train_envs,
+    agent=agent,
+    val_envs=val_envs,
+    config=TrainerConfig(
+        total_steps=int(1e5),
+        nsteps=5,
+        validate_freq=int(2e4),
+        log_dir="logs/A2C/CartPole",
+        model_dir="models/A2C/CartPole",
+    ),
 ).train()
 ```
 
@@ -112,18 +127,22 @@ pair with the paper's hyperparameters baked in.
 
 ```
 rlib/
-├── A2C/        # A2C and A2C-LSTM
-├── A3C/        # Asynchronous A3C
-├── PPO/        # PPO
-├── DDQN/       # Synchronous n-step Double DQN
-├── RND/        # Random Network Distillation
-├── RANDAL/     # RANDAL (RND + UNREAL)
-├── Curiosity/  # ICM-based curiosity agent
-├── Unreal/     # UNREAL-A2C / A2C2
-├── DAAC/       # Decoupled Advantage Actor-Critic
-├── VIN/        # Value Iteration Networks
-├── networks/   # Reusable CNN / MLP / masked-RNN building blocks
-└── utils/      # VecEnv, wrappers, replay memory, schedulers, gym compat
+├── agent.py     # Agent base class + ModelConfig
+├── models.py    # NatureCNN, MLP, MaskedLSTMBlock, …
+├── _cli.py      # Hydra-style YAML runner used by `python -m rlib.<Agent>`
+├── A2C/         # A2C and A2C-LSTM
+├── A3C/         # Asynchronous A3C
+├── PPO/         # PPO
+├── DDQN/        # Synchronous n-step Double DQN
+├── RND/         # Random Network Distillation
+├── RANDAL/      # RANDAL (RND + UNREAL)
+├── Curiosity/   # ICM-based curiosity agent
+├── Unreal/      # UNREAL feedforward + LSTM
+├── DAAC/        # Decoupled Advantage Actor-Critic
+├── VIN/         # Value Iteration Networks
+├── envs/        # RLEnv / RLVecEnv ABCs, BatchEnv, wrappers, ApplePicker
+├── training/    # SyncMultiEnvTrainer, TrainerConfig, Returns, Validator
+└── utils/       # ReplayMemory, schedulers, play, helpers
 ```
 
 ## Documentation

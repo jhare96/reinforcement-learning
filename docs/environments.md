@@ -1,46 +1,55 @@
 # Environments
 
-`rlib` is built on top of [Gymnasium](https://gymnasium.farama.org/) — the
-maintained successor to OpenAI Gym. Backend-agnostic env adapters (Gymnasium,
-legacy `gym`, and any user-registered backend) live in
+`rlib` is built directly on [Gymnasium](https://gymnasium.farama.org/) — the
+maintained successor to OpenAI Gym. The canonical env contract
+(`RLEnv` / `RLVecEnv` ABCs, `BatchEnv` / `DummyBatchEnv` runners,
+wrappers, the `ApplePicker` exploration env) lives in
 [`rlib.envs`](https://github.com/jhare96/reinforcement-learning/tree/master/rlib/envs).
 
-## Choosing a backend
+## The 5-tuple contract
 
 ```python
-# Preferred: rlib.envs.make wraps an env id (or an existing env) into the
-# canonical RLEnvBase contract.
-from rlib.envs import make
+import gymnasium as gym
 
-env = make("CartPole-v1")
+env = gym.make("CartPole-v1")
 obs, info = env.reset(seed=0)
 obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
 ```
 
-For a raw Gymnasium env you can also just `import gymnasium as gym` and call
-`gym.make(...)` directly — `rlib.envs.wrap(env)` will lift it into the
-canonical contract on demand. Wrappers in `rlib.utils.wrappers` and the
-vectorised runners in `rlib.utils.VecEnv` use this contract internally, so
-the rest of the library is backend-agnostic.
+All wrappers and vec-env runners shipped with `rlib` consume this tuple
+internally. The single boundary that collapses
+`(terminated, truncated)` into the legacy `done` flag for agent rollouts
+lives in `RLVecEnv.merge_done` / `merge_info`, so agents see a clean
+`(obs, rewards, dones, infos)` API.
 
 ## Vectorised environments
 
-Two vectorised runners are provided:
+Two runners are provided in `rlib.envs`:
 
-- **`rlib.utils.VecEnv.BatchEnv`** — runs each environment in its own
-  subprocess via `multiprocessing.Pipe`. Use this for environments where
-  stepping is expensive (e.g. Atari).
-- **`rlib.utils.VecEnv.DummyBatchEnv`** — runs all environments in the same
-  process. Use this for cheap environments (e.g. classic control), where
-  the overhead of multiprocessing dominates.
+- **`BatchEnv`** — each env runs in its own subprocess via
+  `multiprocessing.Pipe`. Use this for expensive envs (e.g. Atari).
+- **`DummyBatchEnv`** — all envs run in-process. Use this for cheap envs
+  (e.g. classic control), where multiprocessing overhead dominates.
 
 ```python
-from rlib.utils.VecEnv import BatchEnv, DummyBatchEnv
-from rlib.utils.wrappers import AtariEnv
+from rlib.envs import BatchEnv, DummyBatchEnv
+from rlib.envs.wrappers import AtariEnv
 
-# Atari with 4-frame stacking and reward clipping, 16 parallel workers.
-envs = BatchEnv(AtariEnv, "PongNoFrameskip-v4", num_envs=16, k=4)
+envs = BatchEnv(AtariEnv, "ALE/Pong-v5", num_envs=16, k=4)
 ```
+
+The `rlib._cli` runner exposes two convenience factories,
+`atari_envs(id, num_envs, num_val_envs, frame_stack, episodic, ...)` and
+`classic_envs(id, num_envs, num_val_envs)`, which build the train + val
+pair from a single declaration; YAML configs under
+[`examples/paper/configs/`](https://github.com/jhare96/reinforcement-learning/tree/master/examples/paper/configs)
+show the typical wiring.
+
+## Built-in env: ApplePicker
+
+The `ApplePicker-v0` / `ApplePickerDeterministic-v0` exploration grid-world
+from the RANDAL paper is registered automatically when `rlib.envs` is
+imported.
 
 ## Supported environment families
 
