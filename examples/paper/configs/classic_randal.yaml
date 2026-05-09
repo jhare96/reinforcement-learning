@@ -1,0 +1,63 @@
+# RANDAL Classic Control — Hare 2019, Sec. 3.4 sparse-reward solutions.
+# Per the paper, classic-control RANDAL disables pixel control (only RP + VR).
+#
+# Run: python -m rlib.RANDAL examples/paper/configs/classic_randal.yaml
+
+env:
+  constructor: rlib._cli.classic_envs
+  id: MountainCar-v0
+  num_envs: 32
+  num_val_envs: 8
+
+agent:
+  constructor: rlib.RANDAL.RANDAL
+  policy_model:
+    constructor: rlib.models.MLP
+    partial: true
+  target_model:
+    constructor: rlib.RND.PredictorMLP
+    partial: true
+  input_size: ${input_shape}
+  action_size: ${action_size}
+  intr_coeff: 1.0
+  extr_coeff: 2.0
+  pixel_control: false              # paper: classic control = no pixel control
+  RP: 1.0
+  VR: 1.0
+  PC: 0.0
+  optim:
+    constructor: torch.optim.RMSprop
+    partial: true
+  config:
+    constructor: rlib.PPO.PPOConfig
+    lr: 1.0e-3
+    lr_final: 1.0e-3
+    decay_steps: 1000000000
+    grad_clip: 0.5
+    entropy_coeff: 0.01
+    policy_clip: 0.1
+    device: ${device}
+
+trainer:
+  constructor: rlib.RANDAL.RANDALTrainer
+  envs: ${train_envs}
+  val_envs: ${val_envs}
+  agent: ${agent}
+  config:
+    constructor: rlib.RANDAL.RANDALTrainerConfig
+    total_steps: 2_000_000
+    nsteps: 5
+    gamma: 0.999
+    gamma_intr: 0.99
+    lambda_: 0.95
+    returns: GAE
+    init_obs_steps: 250
+    num_epochs: 4
+    num_minibatches: 1
+    replay_length: 2000
+    norm_pixel_reward: false
+    validate_freq: 100_000
+    num_val_episodes: 8
+    max_val_steps: 500
+    log_dir: logs/paper/RANDAL/MountainCar
+    model_dir: models/paper/RANDAL/MountainCar

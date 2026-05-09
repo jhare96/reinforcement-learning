@@ -1,0 +1,54 @@
+# UNREAL-A2C2 Atari (Table: UNREAL Atari) — Hare 2019, Sec. 3.3.
+#
+# Run: python -m rlib.Unreal examples/paper/configs/atari_unreal.yaml
+
+env:
+  constructor: rlib._cli.atari_envs
+  id: ALE/MontezumaRevenge-v5
+  num_envs: 32
+  num_val_envs: 8
+  frame_stack: 4
+  episodic: true
+  clip_reward: true
+  fire_reset: true
+
+agent:
+  constructor: rlib.Unreal.UnrealA2C2
+  policy_model:
+    constructor: rlib.models.NatureCNN
+    partial: true
+  input_shape: ${input_shape}
+  action_size: ${action_size}
+  pixel_control: true
+  RP: 1.0
+  VR: 1.0
+  PC: 1.0
+  config:
+    constructor: rlib.A2C.A2CConfig
+    lr: 1.0e-3
+    lr_final: 1.0e-4
+    decay_steps: 78125            # 50_000_000 // (32 * 20)
+    grad_clip: 0.5
+    entropy_coeff: 0.001
+    value_coeff: 0.5
+    device: ${device}
+
+trainer:
+  constructor: rlib.Unreal.UnrealTrainer
+  envs: ${train_envs}
+  val_envs: ${val_envs}
+  agent: ${agent}
+  config:
+    constructor: rlib.Unreal.UnrealTrainerConfig
+    total_steps: 50_000_000
+    nsteps: 20
+    gamma: 0.99
+    lambda_: 0.95
+    returns: GAE
+    validate_freq: 1_000_000
+    num_val_episodes: 8
+    max_val_steps: 4500
+    normalise_obs: true
+    replay_length: 2000
+    log_dir: logs/paper/UNREAL/MontezumaRevenge
+    model_dir: models/paper/UNREAL/MontezumaRevenge

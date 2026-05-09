@@ -1,0 +1,50 @@
+# PPO Classic Control (Table: Control_PPO) — Hare 2019, Sec. 3.4.
+#
+# Run: python -m rlib.PPO examples/paper/configs/classic_ppo.yaml
+
+env:
+  constructor: rlib._cli.classic_envs
+  id: CartPole-v1
+  num_envs: 32
+  num_val_envs: 8
+
+agent:
+  constructor: rlib.PPO.PPO
+  model:
+    constructor: rlib.models.MLP
+    partial: true
+  input_shape: ${input_shape}
+  action_size: ${action_size}
+  value_coeff: 0.5
+  optim:
+    constructor: torch.optim.RMSprop
+    partial: true
+  config:
+    constructor: rlib.PPO.PPOConfig
+    lr: 1.0e-3
+    lr_final: 1.0e-3
+    decay_steps: 1000000000
+    grad_clip: 0.5
+    entropy_coeff: 0.01
+    policy_clip: 0.1
+    device: ${device}
+
+trainer:
+  constructor: rlib.PPO.PPOTrainer
+  envs: ${train_envs}
+  val_envs: ${val_envs}
+  agent: ${agent}
+  config:
+    constructor: rlib.PPO.PPOTrainerConfig
+    total_steps: 2_000_000
+    nsteps: 5
+    gamma: 0.99
+    lambda_: 0.95
+    returns: GAE
+    num_epochs: 4
+    num_minibatches: 1
+    validate_freq: 100_000
+    num_val_episodes: 8
+    max_val_steps: 500
+    log_dir: logs/paper/PPO/CartPole
+    model_dir: models/paper/PPO/CartPole

@@ -15,7 +15,7 @@ Hyperparameters reproduce :ref:`tbl:DDQN Atari`::
 
 Run::
 
-    python examples/paper/atari_ddqn.py SpaceInvadersDeterministic-v4
+    python examples/paper/scripts/atari_ddqn.py SpaceInvadersDeterministic-v4
 """
 
 from __future__ import annotations
@@ -24,7 +24,13 @@ import sys
 
 import torch
 
-from examples.paper.common import ATARI_ENVS, ATARI_VAL_STEPS, NatureCNN, atari_envs, get_device
+from examples.paper.scripts.common import (
+    ATARI_ENVS,
+    ATARI_VAL_STEPS,
+    NatureCNN,
+    atari_envs,
+    get_device,
+)
 from rlib.agent import ModelConfig
 from rlib.DDQN import DQN, DDQNTrainerConfig, SyncDDQN
 

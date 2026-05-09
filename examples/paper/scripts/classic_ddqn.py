@@ -5,7 +5,7 @@ The ε schedule anneals over half of training (1M steps) per the paper.
 
 Run::
 
-    python examples/paper/classic_ddqn.py CartPole-v1
+    python examples/paper/scripts/classic_ddqn.py CartPole-v1
 """
 
 from __future__ import annotations
@@ -14,7 +14,13 @@ import sys
 
 import torch
 
-from examples.paper.common import CLASSIC_ENVS, CLASSIC_VAL_STEPS, MLP, classic_envs, get_device
+from examples.paper.scripts.common import (
+    CLASSIC_ENVS,
+    CLASSIC_VAL_STEPS,
+    MLP,
+    classic_envs,
+    get_device,
+)
 from rlib.agent import ModelConfig
 from rlib.DDQN import DQN, DDQNTrainerConfig, SyncDDQN
 from rlib.training import Returns

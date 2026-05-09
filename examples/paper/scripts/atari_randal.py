@@ -1,6 +1,10 @@
-"""RND with PPO Atari (Table: RND Atari) — Hare 2019, Sec. 3.3.
+"""RANDAL Atari (novel agent — Table: RANDAL Atari) — Hare 2019, Sec. 3.3.
 
-Hyperparameters reproduce :ref:`tbl:RND Atari`::
+RANDAL = RND (intrinsic curiosity) + UNREAL auxiliary tasks
+(reward prediction + value replay + pixel control).
+
+Hyperparameters reproduce :ref:`tbl:RANDAL Atari` (mostly the union of
+the RND and UNREAL Atari configs)::
 
     Optimiser              = Adam
     Learning rate          = 1e-4
@@ -16,20 +20,30 @@ Hyperparameters reproduce :ref:`tbl:RND Atari`::
     Intrinsic γ_i          = 0.99
     PPO clip range         = [0.9, 1.1]
     Gradient norm clip     = 0.5
-    Initial obs steps      = 6400
+    Reward prediction coef = 1
+    Value replay coef      = 1
+    Pixel control coef     = 1
+    Replay length / actor  = 2000
 
 Run::
 
-    python examples/paper/atari_rnd.py MontezumaRevengeDeterministic-v4
+    python examples/paper/scripts/atari_randal.py MontezumaRevengeDeterministic-v4
 """
 
 from __future__ import annotations
 
 import sys
 
-from examples.paper.common import ATARI_ENVS, ATARI_VAL_STEPS, NatureCNN, atari_envs, get_device
+from examples.paper.scripts.common import (
+    ATARI_ENVS,
+    ATARI_VAL_STEPS,
+    NatureCNN,
+    atari_envs,
+    get_device,
+)
 from rlib.PPO.model import PPOConfig
-from rlib.RND import RND, PredictorCNN, RNDTrainer, RNDTrainerConfig
+from rlib.RANDAL import RANDAL, RANDALTrainer, RANDALTrainerConfig
+from rlib.RND import PredictorCNN
 from rlib.training import Returns
 
 NSTEPS = 128
@@ -44,7 +58,7 @@ def main(env_id: str = "MontezumaRevengeDeterministic-v4") -> None:
     input_shape = train_envs.envs[0].reset()[0].shape
     action_size = train_envs.envs[0].action_space.n
 
-    agent = RND(
+    agent = RANDAL(
         policy_model=NatureCNN,
         target_model=PredictorCNN,
         input_size=input_shape,
@@ -60,13 +74,17 @@ def main(env_id: str = "MontezumaRevengeDeterministic-v4") -> None:
         ),
         intr_coeff=1.0,
         extr_coeff=2.0,
+        pixel_control=True,
+        RP=1.0,
+        VR=1.0,
+        PC=1.0,
     ).to(device)
 
-    trainer = RNDTrainer(
+    trainer = RANDALTrainer(
         envs=train_envs,
         agent=agent,
         val_envs=val_envs,
-        config=RNDTrainerConfig(
+        config=RANDALTrainerConfig(
             total_steps=TOTAL_STEPS,
             nsteps=NSTEPS,
             gamma=0.999,  # extrinsic discount γ_e
@@ -76,11 +94,13 @@ def main(env_id: str = "MontezumaRevengeDeterministic-v4") -> None:
             init_obs_steps=6400,
             num_epochs=4,
             num_minibatches=4,
+            replay_length=2000,
+            norm_pixel_reward=True,
             validate_freq=1_000_000,
             num_val_episodes=8,
             max_val_steps=ATARI_VAL_STEPS,
-            log_dir=f"logs/paper/RND/{env_id}",
-            model_dir=f"models/paper/RND/{env_id}",
+            log_dir=f"logs/paper/RANDAL/{env_id}",
+            model_dir=f"models/paper/RANDAL/{env_id}",
         ),
     )
     trainer.train()

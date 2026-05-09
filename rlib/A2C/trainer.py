@@ -205,7 +205,7 @@ class A2CLSTMTrainer(SyncMultiEnvTrainer):
         rollout = []
         first_hidden = self.prev_hidden
         for _t in range(self.nsteps):
-            policies, values, hidden = self.agent.evaluate(self.states[None], self.prev_hidden)  
+            policies, values, hidden = self.agent.evaluate(self.states[None], self.prev_hidden)
             actions = fastsample(policies)
             next_states, rewards, dones, infos = self.env.step(actions)
             rollout.append((self.states, actions, rewards, values, dones))

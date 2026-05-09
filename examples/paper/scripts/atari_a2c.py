@@ -13,7 +13,7 @@ Hyperparameters reproduce :ref:`tbl:A2C Atari`::
 
 Run::
 
-    python examples/paper/atari_a2c.py SpaceInvadersDeterministic-v4
+    python examples/paper/scripts/atari_a2c.py SpaceInvadersDeterministic-v4
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import sys
 
 import torch
 
-from examples.paper.common import (
+from examples.paper.scripts.common import (
     ATARI_ENVS,
     ATARI_VAL_STEPS,
     NatureCNN,

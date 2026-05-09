@@ -1,0 +1,51 @@
+# A2C Classic Control — Hare 2019, Sec. 3.4.
+# Uses RMSProp (paper found it more stable than Adam for low-dim envs).
+#
+# Run: python -m rlib.A2C examples/paper/configs/classic_a2c.yaml
+# Other paper envs:
+#   --set env.id=Acrobot-v1
+#   --set env.id=MountainCar-v0
+
+env:
+  constructor: rlib._cli.classic_envs
+  id: CartPole-v1
+  num_envs: 32
+  num_val_envs: 8
+
+agent:
+  constructor: rlib.A2C.ActorCritic
+  model:
+    constructor: rlib.models.MLP
+    partial: true
+  input_size: ${input_shape}
+  action_size: ${action_size}
+  optim:
+    constructor: torch.optim.RMSprop
+    partial: true
+  config:
+    constructor: rlib.A2C.A2CConfig
+    lr: 1.0e-3
+    lr_final: 1.0e-3
+    decay_steps: 1000000000
+    grad_clip: 0.5
+    entropy_coeff: 0.01
+    value_coeff: 0.5
+    device: ${device}
+
+trainer:
+  constructor: rlib.A2C.A2CTrainer
+  envs: ${train_envs}
+  val_envs: ${val_envs}
+  agent: ${agent}
+  config:
+    constructor: rlib.training.TrainerConfig
+    total_steps: 5_000_000
+    nsteps: 5
+    gamma: 0.99
+    lambda_: 0.95
+    returns: GAE
+    validate_freq: 100_000
+    num_val_episodes: 8
+    max_val_steps: 500
+    log_dir: logs/paper/A2C/CartPole
+    model_dir: models/paper/A2C/CartPole
