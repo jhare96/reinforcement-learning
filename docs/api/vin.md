@@ -1,0 +1,3 @@
+# VIN
+
+::: rlib.VIN

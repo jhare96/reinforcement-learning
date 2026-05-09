@@ -60,6 +60,7 @@ mujoco = [
 docs = [
     "mkdocs>=1.5",
     "mkdocs-material>=9.0",
+    "mkdocstrings[python]>=0.24",
 ]
 dev = [
     "pre-commit>=3.0",

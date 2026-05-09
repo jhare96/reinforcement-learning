@@ -361,10 +361,9 @@ class MaskedRNN(torch.nn.Module):
         self.time_major = time_major
 
     def forward(self, x, hidden=None, mask=None):
-        '''args:
-            x - tensor of rank [time, batch, hidden] if time major == True (Default); or [batch, time, hidden] if time major == False
-            mask - tensor of rank [time], for hidden state masking e.g. [True, False, False] will mask first hidden state
-        returns:
+        '''Args:
+        x: tensor of rank [time, batch, hidden] if time_major == True (default); or [batch, time, hidden] if time_major == False.
+        mask: tensor of rank [time], for hidden state masking e.g. [True, False, False] will mask first hidden state.
         '''
 
         if not self.time_major:

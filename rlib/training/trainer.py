@@ -38,7 +38,7 @@ class SyncMultiEnvTrainer:
 
         Args:
             envs: training environments (``BatchEnv`` or ``DummyBatchEnv``).
-            model: an :class:`rlib.networks.Model` subclass.
+            agent: an :class:`rlib.agent.Agent` subclass.
             val_envs: validation envs — a ``list`` (uses threading),
                 a ``BatchEnv`` (multiprocessing), or a ``DummyBatchEnv``
                 (in-process).
