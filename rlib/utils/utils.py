@@ -59,10 +59,10 @@ def totorch_many(*args, device='cuda'):
 
 class Welfords_algorithm:
     # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm
-    def __init__(self, mean=0, epsilon=1e-4):
+    def __init__(self, mean: float | np.ndarray = 0, epsilon: float = 1e-4) -> None:
         self.mean = mean
         self.n = epsilon
-        self.M2 = 1
+        self.M2: float | np.ndarray = 1
 
     def update(self, x):
         return self.update_from_mean(x.mean(axis=0))

@@ -185,6 +185,7 @@ class TestCloneModule:
     def test_clone_is_independent(self) -> None:
         src = torch.nn.Linear(4, 2)
         clone = clone_module(src)
+        assert isinstance(clone, torch.nn.Linear)  # narrows for type-checkers
         assert clone is not src
         for a, b in zip(src.parameters(), clone.parameters(), strict=False):
             assert torch.equal(a, b)

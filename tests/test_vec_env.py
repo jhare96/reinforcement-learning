@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import numpy as np
 
+from rlib.envs.base import RLEnv
 from rlib.envs.vec_env import DummyBatchEnv
 
 
-def _identity_constructor(env: object) -> object:
+def _identity_constructor(env) -> RLEnv:
     return env
 
 

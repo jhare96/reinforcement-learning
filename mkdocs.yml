@@ -21,7 +21,7 @@ nav:
   - Agents: agents.md
   - Environments: environments.md
   - Wrappers: wrappers.md
-  - Changelog: ../CHANGELOG.md
+  - Changelog: changelog.md
 
 markdown_extensions:
   - admonition
@@ -29,3 +29,8 @@ markdown_extensions:
       permalink: true
   - pymdownx.highlight
   - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path:
+        - .
+        - docs
+      check_paths: true

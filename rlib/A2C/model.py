@@ -21,7 +21,7 @@ import torch.nn.functional as F
 
 from rlib.agent import Agent, ModelConfig
 from rlib.models import MaskedLSTMBlock
-from rlib.utils.utils import tonumpy, totorch, totorch_many
+from rlib.utils.utils import tonumpy, tonumpy_many, totorch, totorch_many
 
 
 @dataclass(frozen=True)
@@ -116,7 +116,7 @@ class ActorCritic(A2CModel):
         value = self.V(enc_state).view(-1)
         return policy, value
 
-    def evaluate(self, state: np.ndarray):
+    def evaluate(self, state: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         state_t = totorch(state, self.device)
         with torch.no_grad():
             policy, value = self.forward(state_t)
@@ -171,14 +171,19 @@ class ActorCritic_LSTM(A2CModel):
         value = self.V(lstm_outputs).view(-1)
         return policy, value, hidden
 
-    def evaluate(self, state: np.ndarray, hidden: np.ndarray | None = None, done=None):
+    def evaluate(
+        self,
+        state: np.ndarray,
+        hidden: tuple[np.ndarray, np.ndarray] | None = None,
+        done=None,
+    ):
         state_t = totorch(state, self.device)
         hidden_t = totorch_many(*hidden, device=self.device) if hidden is not None else None
         with torch.no_grad():
-            policy, value, hidden = self.forward(state_t, hidden_t, done)
+            policy, value, hidden_out = self.forward(state_t, hidden_t, done)
 
-        hidden_t = hidden if hidden is not None else None
-        return tonumpy(policy), tonumpy(value), hidden_t
+        hidden_np = tonumpy_many(*hidden_out) if hidden_out is not None else None
+        return tonumpy(policy), tonumpy(value), hidden_np
 
     def backprop(self, state, R, action, hidden, done):
         state, R, action, done = totorch_many(state, R, action, done, device=self.device)

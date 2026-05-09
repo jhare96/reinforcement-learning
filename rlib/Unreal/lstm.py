@@ -52,38 +52,6 @@ def concat_action_reward(actions, rewards, num_classes):
     return concat
 
 
-def AtariEnv__(
-    env,
-    k=4,
-    episodic=True,
-    reset=True,
-    clip_reward=True,
-    Noop=True,
-    time_limit=None,
-    channels_first=True,
-):
-    # Wrapper function for Determinsitic Atari env
-    # assert 'Deterministic' in env.spec.id
-    if reset:
-        env = FireResetEnv(env)
-    if Noop:
-        max_op = 7
-        env = NoopResetEnv(env, max_op)
-    if clip_reward:
-        env = ClipRewardEnv(env)
-    if episodic:
-        env = EpisodicLifeEnv(env)
-
-    env = AtariRescaleColour(env)
-    if k > 1:
-        env = StackEnv(env, k)
-    if time_limit is not None:
-        env = TimeLimitEnv(env, time_limit)
-    if channels_first:
-        env = ChannelsFirstEnv(env)
-    return env
-
-
 class Unreal_ActorCritic_LSTM(A2CModel):
     def __init__(
         self,
@@ -132,10 +100,10 @@ class Unreal_ActorCritic_LSTM(A2CModel):
         return policy, value, hidden
 
     def evaluate(self, state: np.ndarray, action_reward: np.ndarray, hidden=None, done=None):
-        state, action_reward = totorch_many(state, action_reward, device=self.device)
-        hidden = totorch_many(*hidden, device=self.device) if hidden is not None else None
+        state_t, action_reward_t = totorch_many(state, action_reward, device=self.device)
+        hidden_t = totorch_many(*hidden, device=self.device) if hidden is not None else None
         with torch.no_grad():
-            policy, value, hidden = self.forward(state, action_reward, hidden, done)
+            policy, value, hidden = self.forward(state_t, action_reward_t, hidden_t, done)
         return tonumpy(policy), tonumpy(value), tonumpy_many(*hidden)
 
     def backprop(self, state, R, action, action_reward, hidden, done):
@@ -236,13 +204,13 @@ class UnrealA2C(Agent):
         return qaux
 
     def get_pixel_control(self, state: np.ndarray, action_reward, hidden):
-        state, action_reward, hidden = (
+        state_t, action_reward_t, hidden_t = (
             totorch(state, self.device),
             totorch(action_reward, self.device),
             totorch_many(*hidden, device=self.device),
         )
         with torch.no_grad():
-            lstm_state, _ = self.policy.lstm_forward(state, action_reward, hidden, done=None)
+            lstm_state, _ = self.policy.lstm_forward(state_t, action_reward_t, hidden_t, done=None)
             Qaux = self.Qaux(lstm_state)
         return tonumpy(Qaux)
 
@@ -584,12 +552,6 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
             self.states[None], self.prev_actions_rewards, self.prev_hidden
         )
         return states, actions, rewards, first_hidden, prev_actions_rewards, dones, last_values
-
-    def get_action(self, state):
-        policy, value = self.agent.forward(state)
-        action = int(np.random.choice(policy.shape[1], p=policy[0]))
-        # action = np.argmax(policy)
-        return action
 
     def _validate_async(self, env, num_ep, max_steps, render=False):
         for _episode in range(num_ep):

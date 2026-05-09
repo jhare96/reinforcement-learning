@@ -15,7 +15,7 @@ which introduced the **RANDAL** agent included here.
 - [Agent reference](agents.md)
 - [Environment integration](environments.md)
 - [Wrapper reference](wrappers.md)
-- [Changelog](../CHANGELOG.md)
+- [Changelog](changelog.md)
 
 ## Design overview
 
