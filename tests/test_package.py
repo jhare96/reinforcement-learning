@@ -17,7 +17,7 @@ def test_version_is_pep440_string() -> None:
 # Submodules whose imports are guaranteed by the core dependency set.
 # Other agent submodules pull in optional deps (scipy, matplotlib, ...)
 # which are not installed in the slim CI image.
-_CORE_SUBMODULES = ["A3C", "DDQN", "RND", "RANDAL", "DAAC", "VIN", "envs", "networks", "utils"]
+_CORE_SUBMODULES = ["A3C", "DDQN", "RND", "RANDAL", "DAAC", "VIN", "envs", "agent", "utils"]
 _OPTIONAL_SUBMODULES = ["A2C", "PPO", "Curiosity", "Unreal"]
 
 

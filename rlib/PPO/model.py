@@ -1,11 +1,26 @@
+from dataclasses import dataclass
+
 import torch
 import torch.nn.functional as F
 
-from rlib.networks import Model, PPOConfig
+from rlib.agent import Agent, ModelConfig
 from rlib.utils.utils import tonumpy, totorch, totorch_many
 
 
-class PPOModel(Model):
+@dataclass(frozen=True)
+class PPOConfig(ModelConfig):
+    """Hyperparameters for clipped-objective PPO-family agents (PPO / RND / DAAC policy).
+
+    Attributes:
+        entropy_coeff: Coefficient on the policy entropy bonus.
+        policy_clip: Clipping parameter for PPO's clipped objective.
+    """
+
+    entropy_coeff: float = 0.01
+    policy_clip: float = 0.1
+
+
+class PPOModel(Agent):
     """PPO-family base class: defines the clipped-objective policy loss.
 
     Concrete subclasses (single-critic PPO, twin-critic PPOIntrinsic,

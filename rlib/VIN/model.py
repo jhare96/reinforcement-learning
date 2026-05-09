@@ -3,11 +3,11 @@
 import torch
 import torch.nn.functional as F
 
-from rlib.networks import Model, ModelConfig
+from rlib.agent import Agent, ModelConfig
 from rlib.utils.utils import one_hot, tonumpy, totorch
 
 
-class VINCNN(Model):
+class VINCNN(Agent):
     def __init__(self, input_size, action_size, k=10, lr=1e-3, device='cuda'):
         # VIN historically used a constant LR (no scheduler decay) and
         # no gradient clipping; encode that as a fixed config preset.

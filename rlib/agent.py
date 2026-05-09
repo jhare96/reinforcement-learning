@@ -1,4 +1,4 @@
-"""Common abstract base class for trainable agent models in rlib.
+"""Common abstract base class for trainable agents in rlib.
 
 Almost every agent in :mod:`rlib` reimplements the same boilerplate:
 
@@ -8,7 +8,7 @@ Almost every agent in :mod:`rlib` reimplements the same boilerplate:
   ``loss.backward → clip_grad_norm_ → optimiser.step → zero_grad → scheduler.step``
   sequence at the end of every ``backprop`` call.
 
-:class:`Model` factors that out into a single abstract base so agent
+:class:`Agent` factors that out into a single abstract base so agent
 implementations can focus on what is actually agent-specific (their
 forward pass, ``evaluate`` signature, loss formulation, and ``backprop``
 signature).
@@ -24,32 +24,53 @@ Subclasses are expected to:
    (or subclass).
 2. Build their network heads (policy/value/Q/etc.) attached to
    ``self.device``.
-3. Optionally call :meth:`Model._build_optimiser` once they have all
-   their parameters in place. Composite models that delegate
+3. Optionally call :meth:`Agent._build_optimiser` once they have all
+   their parameters in place. Composite agents that delegate
    optimisation to a child can simply skip this step.
 4. Implement ``forward`` (inherited from :class:`torch.nn.Module`) and
-   the abstract :meth:`backprop` and :meth:`evaluate` methods.  The
-   exact signatures of those three methods are agent-specific (e.g.
-   recurrent agents take an extra ``hidden`` argument), which is why
-   they live on each concrete subclass.
+   the abstract :meth:`backprop` and :meth:`evaluate` methods.
 5. End each ``backprop`` method with ``return self._train_step(loss)``.
+
+Per-agent ``ModelConfig`` subclasses (``A2CConfig``, ``PPOConfig``, ...)
+live next to their respective agent class in ``rlib/<Agent>/model.py``.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import torch
 
-from rlib.networks.model_config import ModelConfig
 from rlib.utils.schedulers import polynomial_sheduler
 
-__all__ = ["Model"]
+__all__ = ["Agent", "ModelConfig"]
 
 
-class Model(torch.nn.Module, ABC):
+@dataclass(frozen=True)
+class ModelConfig:
+    """Shared hyperparameters for every :class:`Agent`.
+
+    Attributes:
+        lr: Initial learning rate.
+        lr_final: Final learning rate the polynomial scheduler decays to.
+        decay_steps: Optimiser steps over which the LR decays from
+            ``lr`` to ``lr_final``.  Use ``lr_final == lr`` for a
+            constant LR.
+        grad_clip: Maximum gradient norm; ``None`` disables clipping.
+        device: Torch device string (``"cuda"``, ``"cpu"``, ...).
+    """
+
+    lr: float = 1e-3
+    lr_final: float = 0.0
+    decay_steps: int = 600_000
+    grad_clip: float | None = 0.5
+    device: str = "cuda"
+
+
+class Agent(torch.nn.Module, ABC):
     """Abstract base class for trainable rlib agent models.
 
     Args:

@@ -31,7 +31,7 @@ _LAZY_SUBMODULES = {
     "DAAC": "rlib.DAAC",
     "VIN": "rlib.VIN",
     "envs": "rlib.envs",
-    "networks": "rlib.networks",
+    "agent": "rlib.agent",
     "training": "rlib.training",
     "utils": "rlib.utils",
 }
@@ -62,7 +62,6 @@ if TYPE_CHECKING:  # pragma: no cover - type checkers only
         Curiosity,
         Unreal,
         envs,
-        networks,
         utils,
     )
 

@@ -7,8 +7,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rlib.A2C.model import ActorCritic
-from rlib.networks import A2CConfig, Model
+from rlib.A2C.model import A2CConfig, ActorCritic
+from rlib.agent import Agent
 from rlib.training import SyncMultiEnvTrainer, TrainerConfig
 from rlib.utils.utils import (
     GAE,
@@ -43,7 +43,7 @@ def sign(x):
         raise ValueError
 
 
-class UnrealA2C2(Model):
+class UnrealA2C2(Agent):
     def __init__(
         self,
         policy_model,

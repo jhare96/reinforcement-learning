@@ -22,8 +22,8 @@ import torch
 
 from rlib.envs.vec_env import BatchEnv
 from rlib.envs.wrappers import AtariEnv
-from rlib.networks import PPOConfig
-from rlib.networks.networks import UniverseCNN
+from rlib.models import UniverseCNN
+from rlib.PPO.model import PPOConfig
 from rlib.RND import RND, PredictorCNN, RNDTrainer, RNDTrainerConfig
 
 

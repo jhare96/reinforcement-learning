@@ -1,7 +1,7 @@
 """Shared building blocks for the paper-reproduction recipes.
 
 * :class:`MLP`         — small MLP body for low-dimensional classic control.
-* :func:`NatureCNNBody` — re-exported NatureCNN from :mod:`rlib.networks.networks`
+* :func:`NatureCNNBody` — re-exported NatureCNN from :mod:`rlib.models`
                           for Atari pixel inputs.
 * Env id constants for the three classic-control and three Atari
   benchmarks the paper reports.
@@ -19,7 +19,7 @@ import torch
 
 from rlib.envs.vec_env import BatchEnv, DummyBatchEnv
 from rlib.envs.wrappers import AtariEnv
-from rlib.networks.networks import NatureCNN  # noqa: F401  (re-exported)
+from rlib.models import NatureCNN  # noqa: F401  (re-exported)
 
 # ---------------------------------------------------------------------------
 # Env id constants (matching the paper's experiment grid)

@@ -2,7 +2,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rlib.networks import Model, PPOConfig
+from rlib.agent import Agent
+from rlib.PPO.model import PPOConfig
 from rlib.RND.model import PPOIntrinsic
 from rlib.utils.utils import tonumpy, totorch, totorch_many
 
@@ -18,7 +19,7 @@ def sign(x):
         raise ValueError
 
 
-class RANDAL(Model):
+class RANDAL(Agent):
     def __init__(
         self,
         policy_model,

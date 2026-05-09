@@ -17,7 +17,7 @@ import torch
 
 from examples.paper.common import CLASSIC_ENVS, CLASSIC_VAL_STEPS, MLP, classic_envs, get_device
 from rlib.A2C import A2CTrainer, ActorCritic
-from rlib.networks import A2CConfig
+from rlib.A2C.model import A2CConfig
 from rlib.training import Returns, TrainerConfig
 
 TOTAL_STEPS = 5_000_000

@@ -26,8 +26,8 @@ import sys
 import torch
 
 from examples.paper.common import CLASSIC_ENVS, CLASSIC_VAL_STEPS, MLP, classic_envs, get_device
-from rlib.networks import PPOConfig
 from rlib.PPO import PPO, PPOTrainer, PPOTrainerConfig
+from rlib.PPO.model import PPOConfig
 from rlib.training import Returns
 
 TOTAL_STEPS = 2_000_000

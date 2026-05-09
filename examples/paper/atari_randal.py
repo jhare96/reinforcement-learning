@@ -35,7 +35,7 @@ from __future__ import annotations
 import sys
 
 from examples.paper.common import ATARI_ENVS, ATARI_VAL_STEPS, NatureCNN, atari_envs, get_device
-from rlib.networks import PPOConfig
+from rlib.PPO.model import PPOConfig
 from rlib.RANDAL import RANDAL, RANDALTrainer, RANDALTrainerConfig
 from rlib.RND import PredictorCNN
 from rlib.training import Returns

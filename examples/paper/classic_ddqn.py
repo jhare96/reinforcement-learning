@@ -15,8 +15,8 @@ import sys
 import torch
 
 from examples.paper.common import CLASSIC_ENVS, CLASSIC_VAL_STEPS, MLP, classic_envs, get_device
+from rlib.agent import ModelConfig
 from rlib.DDQN import DQN, DDQNTrainerConfig, SyncDDQN
-from rlib.networks import ModelConfig
 from rlib.training import Returns
 
 TOTAL_STEPS = 2_000_000

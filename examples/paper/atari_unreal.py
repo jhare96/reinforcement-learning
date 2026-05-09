@@ -25,7 +25,7 @@ from __future__ import annotations
 import sys
 
 from examples.paper.common import ATARI_ENVS, ATARI_VAL_STEPS, NatureCNN, atari_envs, get_device
-from rlib.networks import A2CConfig
+from rlib.A2C.model import A2CConfig
 from rlib.training import Returns
 from rlib.Unreal import UnrealA2C2, UnrealTrainer, UnrealTrainerConfig
 

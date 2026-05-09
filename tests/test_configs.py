@@ -6,10 +6,12 @@ import dataclasses
 
 import pytest
 
+from rlib.A2C.model import A2CConfig
+from rlib.agent import ModelConfig
 from rlib.DAAC import DAACTrainerConfig  # noqa: I001 — agent imports after utils for clarity
 from rlib.DDQN import DDQNTrainerConfig
-from rlib.networks import A2CConfig, ModelConfig, PPOConfig
 from rlib.PPO import PPOTrainerConfig
+from rlib.PPO.model import PPOConfig
 from rlib.RANDAL import RANDALTrainerConfig
 from rlib.RND import RNDTrainerConfig
 from rlib.training import Returns, TrainerConfig, TrainMode
@@ -115,9 +117,9 @@ class TestModelConfigIntegration:
     def test_model_accepts_config(self) -> None:
         import torch
 
-        from rlib.networks import Model
+        from rlib.agent import Agent
 
-        class _Concrete(Model):
+        class _Concrete(Agent):
             def __init__(self, **kw):
                 super().__init__(**kw)
                 self.lin = torch.nn.Linear(2, 1).to(self.device)
@@ -141,9 +143,9 @@ class TestModelConfigIntegration:
 
     def test_model_requires_config(self) -> None:
         """Without a config, Model raises a clear TypeError."""
-        from rlib.networks import Model
+        from rlib.agent import Agent
 
-        class _Concrete(Model):
+        class _Concrete(Agent):
             def forward(self, x):
                 return x
 
@@ -231,8 +233,8 @@ class TestAutoLoggedHyperparameters:
         import torch
 
         from rlib.A2C import A2CTrainer, ActorCritic
+        from rlib.A2C.model import A2CConfig
         from rlib.envs.vec_env import DummyBatchEnv
-        from rlib.networks import A2CConfig
 
         class _MLP(torch.nn.Module):
             dense_size = 16

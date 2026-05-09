@@ -13,16 +13,31 @@ The class hierarchy mirrors the user-facing pattern requested for rlib:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rlib.networks import A2CConfig, Model
-from rlib.networks.networks import MaskedLSTMBlock
+from rlib.agent import Agent, ModelConfig
+from rlib.models import MaskedLSTMBlock
 from rlib.utils.utils import tonumpy, tonumpy_many, totorch, totorch_many
 
 
-class A2CModel(Model):
+@dataclass(frozen=True)
+class A2CConfig(ModelConfig):
+    """Hyperparameters for advantage actor-critic agents (A2C / A3C / UNREAL).
+
+    Attributes:
+        entropy_coeff: Coefficient on the policy entropy bonus.
+        value_coeff: Weight on the value function loss term.
+    """
+
+    entropy_coeff: float = 0.01
+    value_coeff: float = 0.5
+
+
+class A2CModel(Agent):
     """A2C-family base class: defines the actor-critic + entropy loss.
 
     Concrete subclasses (feed-forward, recurrent, ...) only need to

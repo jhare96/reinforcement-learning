@@ -30,7 +30,7 @@ from examples.paper.common import (
     get_device,
 )
 from rlib.A2C import A2CTrainer, ActorCritic
-from rlib.networks import A2CConfig
+from rlib.A2C.model import A2CConfig
 from rlib.training import TrainerConfig
 
 

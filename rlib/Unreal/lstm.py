@@ -6,7 +6,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rlib.A2C.model import A2CModel
+from rlib.A2C.model import A2CConfig, A2CModel
+from rlib.agent import Agent
 from rlib.envs.wrappers import (
     AtariRescaleColour,
     ChannelsFirstEnv,
@@ -17,8 +18,7 @@ from rlib.envs.wrappers import (
     StackEnv,
     TimeLimitEnv,
 )
-from rlib.networks import A2CConfig, Model
-from rlib.networks.networks import MaskedLSTMBlock
+from rlib.models import MaskedLSTMBlock
 from rlib.training import SyncMultiEnvTrainer, TrainerConfig
 from rlib.training.returns import nstep_return
 from rlib.utils.utils import (
@@ -156,7 +156,7 @@ class Unreal_ActorCritic_LSTM(A2CModel):
         return (hidden[0] * mask, hidden[1] * mask)
 
 
-class UnrealA2C(Model):
+class UnrealA2C(Agent):
     def __init__(
         self,
         policy_model,

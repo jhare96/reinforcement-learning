@@ -9,8 +9,8 @@ import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
+from rlib.agent import Agent
 from rlib.envs.vec_env import BatchEnv, DummyBatchEnv
-from rlib.networks import Model
 from rlib.training.config import TrainerConfig, TrainMode
 from rlib.training.validation import Validator, make_validator
 from rlib.utils.utils import fold_batch
@@ -19,7 +19,7 @@ from rlib.utils.utils import fold_batch
 class SyncMultiEnvTrainer:
     """Synchronous multi-env training framework for any :class:`rlib.networks.Model`."""
 
-    model: Model
+    model: Agent
     config: TrainerConfig
     validator: Validator
     train_writer: SummaryWriter
@@ -28,7 +28,7 @@ class SyncMultiEnvTrainer:
     def __init__(
         self,
         envs: BatchEnv | DummyBatchEnv,
-        model: Model,
+        model: Agent,
         val_envs: list | BatchEnv | DummyBatchEnv,
         config: TrainerConfig,
     ) -> None:

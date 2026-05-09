@@ -2,9 +2,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rlib.networks import Model, PPOConfig
-from rlib.networks.networks import conv2d_outsize
-from rlib.PPO.model import PPOModel
+from rlib.agent import Agent
+from rlib.models import conv2d_outsize
+from rlib.PPO.model import PPOConfig, PPOModel
 from rlib.utils.utils import tonumpy, totorch, totorch_many
 
 
@@ -226,7 +226,7 @@ class PredictorMLP(torch.nn.Module):
         return x
 
 
-class RND(Model):
+class RND(Agent):
     # EXPLORATION BY RANDOM NETWORK DISTILLATION
     # https://arxiv.org/pdf/1810.12894.pdf
     def __init__(

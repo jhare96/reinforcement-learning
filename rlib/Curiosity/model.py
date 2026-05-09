@@ -3,8 +3,8 @@
 import torch
 import torch.nn.functional as F
 
-from rlib.A2C.model import ActorCritic
-from rlib.networks import A2CConfig, Model
+from rlib.A2C.model import A2CConfig, ActorCritic
+from rlib.agent import Agent
 from rlib.utils.utils import totorch_many
 
 
@@ -77,7 +77,7 @@ class ICM(torch.nn.Module):
         return (1 - self.forward_coeff) * inverse_loss + self.forward_coeff * forward_loss
 
 
-class Curiosity(Model):
+class Curiosity(Agent):
     def __init__(
         self,
         policy_model,

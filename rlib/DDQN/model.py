@@ -4,11 +4,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rlib.networks import Model, ModelConfig
+from rlib.agent import Agent, ModelConfig
 from rlib.utils.utils import totorch, totorch_many
 
 
-class DQN(Model):
+class DQN(Agent):
     def __init__(
         self,
         model,

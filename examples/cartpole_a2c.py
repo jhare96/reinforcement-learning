@@ -17,8 +17,8 @@ import gymnasium as gym
 import torch
 
 from rlib.A2C import A2CTrainer, ActorCritic
+from rlib.A2C.model import A2CConfig
 from rlib.envs.vec_env import DummyBatchEnv
-from rlib.networks import A2CConfig
 from rlib.training import TrainerConfig
 
 

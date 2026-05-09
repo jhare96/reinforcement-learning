@@ -2,12 +2,12 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rlib.networks import Model, ModelConfig, PPOConfig
-from rlib.PPO.model import PPOModel
+from rlib.agent import Agent, ModelConfig
+from rlib.PPO.model import PPOConfig, PPOModel
 from rlib.utils.utils import tonumpy, totorch, totorch_many
 
 
-class ValueModel(Model):
+class ValueModel(Agent):
     def __init__(
         self,
         model,
@@ -105,7 +105,7 @@ class PolicyModel(PPOModel):
         return self._train_step(loss)
 
 
-class DAAC(Model):
+class DAAC(Agent):
     # Decoupling Value and Policy for Generalization in Reinforcement Learning
     # https://arxiv.org/pdf/2102.10330.pdf
     def __init__(

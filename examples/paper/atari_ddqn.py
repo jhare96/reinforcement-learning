@@ -25,8 +25,8 @@ import sys
 import torch
 
 from examples.paper.common import ATARI_ENVS, ATARI_VAL_STEPS, NatureCNN, atari_envs, get_device
+from rlib.agent import ModelConfig
 from rlib.DDQN import DQN, DDQNTrainerConfig, SyncDDQN
-from rlib.networks import ModelConfig
 
 
 def main(env_id: str = "SpaceInvadersDeterministic-v4") -> None:

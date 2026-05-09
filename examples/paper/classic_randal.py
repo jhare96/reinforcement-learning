@@ -23,7 +23,7 @@ import sys
 import torch
 
 from examples.paper.common import CLASSIC_ENVS, CLASSIC_VAL_STEPS, MLP, classic_envs, get_device
-from rlib.networks import PPOConfig
+from rlib.PPO.model import PPOConfig
 from rlib.RANDAL import RANDAL, RANDALTrainer, RANDALTrainerConfig
 from rlib.RND import PredictorMLP
 from rlib.training import Returns
