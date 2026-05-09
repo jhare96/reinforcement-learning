@@ -4,6 +4,7 @@ import time
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
+from rlib.training.returns import Returns
 from rlib.utils.utils import fold_batch, one_hot, stack_many
 from rlib.VIN.model import VINCNN
 
@@ -26,7 +27,7 @@ class VINTrainer:
         epsilon_final=0.1,
         epsilon_steps=1000000,
         epsilon_test=0.1,
-        return_type='nstep',
+        returns: Returns = Returns.NSTEP,
         log_dir='logs/',
         model_dir='models/',
         total_steps=50000000,
@@ -54,7 +55,7 @@ class VINTrainer:
 
         self.total_steps = int(total_steps)
         self.nsteps = nsteps
-        self.return_type = return_type
+        self.returns = returns
         self.gamma = gamma
         self.lambda_ = lambda_
 
@@ -78,68 +79,6 @@ class VINTrainer:
             train_log_dir = self.log_dir + '/train'
             self.train_writer = SummaryWriter(train_log_dir)
 
-    def nstep_return(self, rewards, last_values, dones, gamma=0.99, clip=False):
-        if clip:
-            rewards = np.clip(rewards, -1, 1)
-
-        T = len(rewards)
-
-        # Calculate R for advantage A = R - V
-        R = np.zeros_like(rewards)
-        R[-1] = last_values * (1 - dones[-1])
-
-        for i in reversed(range(T - 1)):
-            # restart score if done as BatchEnv automatically resets after end of episode
-            R[i] = rewards[i] + gamma * R[i + 1] * (1 - dones[i])
-
-        return R
-
-    def lambda_return(
-        self,
-        rewards,
-        values,
-        last_values,
-        dones,
-        gamma=0.99,
-        lambda_=0.8,
-        clip=False,
-    ):
-        if clip:
-            rewards = np.clip(rewards, -1, 1)
-        T = len(rewards)
-        # Calculate eligibility trace R^lambda
-        R = np.zeros_like(rewards)
-        R[-1] = last_values * (1 - dones[-1])
-        for t in reversed(range(T - 1)):
-            # restart score if done as BatchEnv automatically resets after end of episode
-            R[t] = rewards[t] + gamma * (lambda_ * R[t + 1] + (1.0 - lambda_) * values[t + 1]) * (
-                1 - dones[t]
-            )
-
-        return R
-
-    def GAE(
-        self,
-        rewards,
-        values,
-        last_values,
-        dones,
-        gamma=0.99,
-        lambda_=0.95,
-        clip=False,
-    ):
-        if clip:
-            rewards = np.clip(rewards, -1, 1)
-        # Generalised Advantage Estimation
-        Adv = np.zeros_like(rewards)
-        Adv[-1] = rewards[-1] + gamma * last_values * (1 - dones[-1]) - values[-1]
-        T = len(rewards)
-        for t in reversed(range(T - 1)):
-            delta = rewards[t] + gamma * values[t + 1] * (1 - dones[t]) - values[t]
-            Adv[t] = delta + gamma * lambda_ * Adv[t + 1] * (1 - dones[t])
-
-        return Adv
-
     def get_locs(self):
         locs = []
         for env in self.env.envs:
@@ -156,25 +95,7 @@ class VINTrainer:
         start = time.time()
         for t in range(self.t, num_updates + 1):
             states, locs, actions, rewards, dones, infos, values, last_values = self.rollout()
-            if self.return_type == 'nstep':
-                R = self.nstep_return(rewards, last_values, dones, gamma=self.gamma)
-            elif self.return_type == 'GAE':
-                R = (
-                    self.GAE(
-                        rewards, values, last_values, dones, gamma=self.gamma, lambda_=self.lambda_
-                    )
-                    + values
-                )
-            elif self.return_type == 'lambda':
-                R = self.lambda_return(
-                    rewards,
-                    values,
-                    last_values,
-                    dones,
-                    gamma=self.gamma,
-                    lambda_=self.lambda_,
-                    clip=False,
-                )
+            R = self.returns(rewards, values, last_values, dones, self.gamma, self.lambda_)
             # stack all states, actions and Rs from all workers into a single batch
             states, locs, actions, R = (
                 fold_batch(states),

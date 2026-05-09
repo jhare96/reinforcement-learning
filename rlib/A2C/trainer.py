@@ -116,19 +116,7 @@ class A2CLSTMTrainer(SyncMultiEnvTrainer):
         for t in range(1, num_updates + 1):
             states, actions, rewards, first_hidden, dones, values, last_values = self.rollout()
 
-            if self.return_type == 'nstep':
-                R = self.nstep_return(rewards, last_values, dones, gamma=self.gamma)
-            elif self.return_type == 'GAE':
-                R = (
-                    self.GAE(
-                        rewards, values, last_values, dones, gamma=self.gamma, lambda_=self.lambda_
-                    )
-                    + values
-                )
-            elif self.return_type == 'lambda':
-                R = self.lambda_return(
-                    rewards, values, last_values, dones, gamma=self.gamma, lambda_=self.lambda_
-                )
+            R = self.returns(rewards, values, last_values, dones, self.gamma, self.lambda_)
 
             # stack all states, actions and Rs across all workers into a single batch
             actions, R = fold_batch(actions), fold_batch(R)

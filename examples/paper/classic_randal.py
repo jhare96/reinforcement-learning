@@ -26,6 +26,7 @@ from examples.paper.common import CLASSIC_ENVS, CLASSIC_VAL_STEPS, MLP, classic_
 from rlib.networks import PPOConfig
 from rlib.RANDAL import RANDAL, RANDALTrainer, RANDALTrainerConfig
 from rlib.RND import PredictorMLP
+from rlib.training import Returns
 
 TOTAL_STEPS = 2_000_000
 
@@ -70,7 +71,7 @@ def main(env_id: str = "MountainCar-v0") -> None:
             gamma=0.999,
             gamma_intr=0.99,
             lambda_=0.95,
-            return_type="GAE",
+            returns=Returns.GAE,
             init_obs_steps=250,
             num_epochs=4,
             num_minibatches=1,

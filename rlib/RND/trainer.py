@@ -5,6 +5,7 @@ import numpy as np
 
 from rlib.RND.model import RND, RewardForwardFilter
 from rlib.training import SyncMultiEnvTrainer, TrainerConfig
+from rlib.training.returns import GAE
 from rlib.utils.utils import RunningMeanStd, fastsample, fold_many, stack_many
 
 
@@ -94,7 +95,7 @@ class RNDTrainer(SyncMultiEnvTrainer):
             )  # normalise intrinsic rewards
             intr_rewards /= R_intr_std
 
-            Adv_extr = self.GAE(
+            Adv_extr = GAE(
                 extr_rewards,
                 values_extr,
                 last_values_extr,
@@ -102,7 +103,7 @@ class RNDTrainer(SyncMultiEnvTrainer):
                 gamma=self.gamma,
                 lambda_=self.lambda_,
             )
-            Adv_intr = self.GAE(
+            Adv_intr = GAE(
                 intr_rewards,
                 values_intr,
                 last_values_intr,

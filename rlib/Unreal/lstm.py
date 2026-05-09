@@ -20,6 +20,7 @@ from rlib.envs.wrappers import (
 from rlib.networks import A2CConfig, Model
 from rlib.networks.networks import MaskedLSTMBlock
 from rlib.training import SyncMultiEnvTrainer, TrainerConfig
+from rlib.training.returns import nstep_return
 from rlib.utils.utils import (
     fastsample,
     fold_batch,
@@ -443,7 +444,7 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
         _, replay_values, *_ = self.model.evaluate(
             next_state[None], replay_actsrews[-1][None], replay_hiddens[-1].reshape(2, 1, 1, -1)
         )
-        replay_R = self.nstep_return(replay_rewards, replay_values, replay_dones)
+        replay_R = nstep_return(replay_rewards, replay_values, replay_dones)
 
         prev_states = self.replay[sample_start - 1][0][worker]
         Qaux_value = self.model.get_pixel_control(
@@ -498,7 +499,7 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
                 self.rollout()
             )
 
-            R = self.nstep_return(rewards, last_values, dones, clip=False)
+            R = nstep_return(rewards, last_values, dones, clip=False)
             # stack all states, actions and Rs across all workers into a single batch
             prev_acts_rewards, actions, rewards, R = (
                 fold_batch(prev_acts_rewards),

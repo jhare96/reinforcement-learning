@@ -8,6 +8,7 @@ from rlib.RANDAL.model import RANDAL, sign
 from rlib.RND.model import RewardForwardFilter
 from rlib.RND.trainer import RNDTrainerConfig
 from rlib.training import SyncMultiEnvTrainer
+from rlib.training.returns import GAE
 from rlib.utils.utils import (
     RunningMeanStd,
     fastsample,
@@ -125,7 +126,7 @@ class RANDALTrainer(SyncMultiEnvTrainer):
         next_state = self.replay[sample_start + self.nsteps][0][workers]  # get state
         _, replay_last_values_extr, replay_last_values_intr = self.model.evaluate(next_state)
         replay_R = (
-            self.GAE(
+            GAE(
                 replay_rewards,
                 replay_values,
                 replay_last_values_extr,
@@ -229,7 +230,7 @@ class RANDALTrainer(SyncMultiEnvTrainer):
             )  # normalise intrinsic rewards
             intr_rewards /= R_intr_std
 
-            Adv_extr = self.GAE(
+            Adv_extr = GAE(
                 extr_rewards,
                 values_extr,
                 last_values_extr,
@@ -237,7 +238,7 @@ class RANDALTrainer(SyncMultiEnvTrainer):
                 gamma=self.gamma,
                 lambda_=self.lambda_,
             )
-            Adv_intr = self.GAE(
+            Adv_intr = GAE(
                 intr_rewards,
                 values_intr,
                 last_values_intr,

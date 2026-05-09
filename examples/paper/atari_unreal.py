@@ -26,6 +26,7 @@ import sys
 
 from examples.paper.common import ATARI_ENVS, ATARI_VAL_STEPS, NatureCNN, atari_envs, get_device
 from rlib.networks import A2CConfig
+from rlib.training import Returns
 from rlib.Unreal import UnrealA2C2, UnrealTrainer, UnrealTrainerConfig
 
 
@@ -64,7 +65,7 @@ def main(env_id: str = "MontezumaRevengeDeterministic-v4") -> None:
             nsteps=20,
             gamma=0.99,
             lambda_=0.95,
-            return_type="GAE",
+            returns=Returns.GAE,
             validate_freq=1_000_000,
             num_val_episodes=8,
             max_val_steps=ATARI_VAL_STEPS,

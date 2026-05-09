@@ -17,6 +17,7 @@ import torch
 from examples.paper.common import CLASSIC_ENVS, CLASSIC_VAL_STEPS, MLP, classic_envs, get_device
 from rlib.DDQN import DQN, DDQNTrainerConfig, SyncDDQN
 from rlib.networks import ModelConfig
+from rlib.training import Returns
 
 TOTAL_STEPS = 2_000_000
 
@@ -49,7 +50,7 @@ def main(env_id: str = "CartPole-v1") -> None:
             nsteps=5,
             gamma=0.99,
             lambda_=0.95,
-            return_type="GAE",
+            returns=Returns.GAE,
             update_target_freq=10_000,
             validate_freq=100_000,
             num_val_episodes=8,

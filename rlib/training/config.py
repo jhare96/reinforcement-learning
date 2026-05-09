@@ -1,4 +1,4 @@
-"""Frozen dataclass config for :class:`rlib.utils.SyncMultiEnvTrainer`.
+"""Frozen dataclass config for :class:`rlib.training.SyncMultiEnvTrainer`.
 
 The trainer takes ~17 hyperparameter kwargs in its ``__init__``, all
 forwarded by every concrete trainer subclass via
@@ -18,29 +18,37 @@ since each is 1-to-1 with a single trainer.
 
 from __future__ import annotations
 
+import enum
 from dataclasses import dataclass
-from typing import Literal
 
-__all__ = ["ReturnType", "TrainerConfig", "TrainMode"]
+from rlib.training.returns import Returns
+
+__all__ = ["TrainMode", "TrainerConfig"]
 
 
-TrainMode = Literal["nstep", "onestep"]
-ReturnType = Literal["nstep", "lambda", "GAE"]
+class TrainMode(str, enum.Enum):
+    """Whether the trainer dispatches to ``_train_nstep`` or ``_train_onestep``."""
+
+    NSTEP = "nstep"
+    ONESTEP = "onestep"
+
+    def __str__(self) -> str:
+        return self.value
 
 
 @dataclass(frozen=True)
 class TrainerConfig:
-    """All hyperparameters for :class:`rlib.utils.SyncMultiEnvTrainer`.
+    """All hyperparameters for :class:`rlib.training.SyncMultiEnvTrainer`.
 
     Attributes:
-        train_mode: Either ``"nstep"`` (multi-step TD updates) or
-            ``"onestep"`` (single-step TD updates).
-        return_type: Return estimator — ``"nstep"``, ``"lambda"`` or
-            ``"GAE"``.
+        train_mode: Whether to dispatch to the multi-step
+            (:attr:`TrainMode.NSTEP`) or one-step
+            (:attr:`TrainMode.ONESTEP`) training loop.
+        returns: Return / advantage estimator (:class:`Returns` enum).
         total_steps: Total environment steps across all parallel envs.
         nsteps: Length of each n-step rollout.
         gamma: Discount factor.
-        lambda_: GAE / λ-return weighting.
+        lambda_: GAE / λ-return weighting (ignored by ``Returns.NSTEP``).
         validate_freq: Env steps between validation passes; ``0``
             disables validation.
         num_val_episodes: Episodes averaged per validation pass.
@@ -56,8 +64,8 @@ class TrainerConfig:
     """
 
     # Training schedule
-    train_mode: TrainMode = "nstep"
-    return_type: ReturnType = "nstep"
+    train_mode: TrainMode = TrainMode.NSTEP
+    returns: Returns = Returns.NSTEP
     total_steps: int = 50_000_000
     nsteps: int = 5
     gamma: float = 0.99
@@ -77,11 +85,3 @@ class TrainerConfig:
     # Off-policy hooks
     update_target_freq: int = 0
     render_freq: int = 0
-
-    def __post_init__(self) -> None:
-        if self.train_mode not in ("nstep", "onestep"):
-            raise ValueError(f"train_mode must be 'nstep' or 'onestep', got {self.train_mode!r}")
-        if self.return_type not in ("nstep", "lambda", "GAE"):
-            raise ValueError(
-                f"return_type must be 'nstep', 'lambda' or 'GAE', got {self.return_type!r}"
-            )

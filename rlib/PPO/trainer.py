@@ -5,6 +5,7 @@ import numpy as np
 
 from rlib.PPO.model import PPO
 from rlib.training import SyncMultiEnvTrainer, TrainerConfig
+from rlib.training.returns import GAE
 from rlib.utils.utils import fastsample, fold_many, stack_many
 
 
@@ -41,9 +42,7 @@ class PPOTrainer(SyncMultiEnvTrainer):
             # rollout_start = time.time()
             states, actions, rewards, values, last_values, old_policies, dones = self.rollout()
             # print('rollout time', time.time()-rollout_start)
-            Adv = self.GAE(
-                rewards, values, last_values, dones, gamma=self.gamma, lambda_=self.lambda_
-            )
+            Adv = GAE(rewards, values, last_values, dones, gamma=self.gamma, lambda_=self.lambda_)
             R = Adv + values
             loss_value = 0
 

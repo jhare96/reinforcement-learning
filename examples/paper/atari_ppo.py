@@ -26,6 +26,7 @@ import sys
 from examples.paper.common import ATARI_ENVS, ATARI_VAL_STEPS, NatureCNN, atari_envs, get_device
 from rlib.networks import PPOConfig
 from rlib.PPO import PPO, PPOTrainer, PPOTrainerConfig
+from rlib.training import Returns
 
 NSTEPS = 128
 NUM_WORKERS = 32
@@ -64,7 +65,7 @@ def main(env_id: str = "SpaceInvadersDeterministic-v4") -> None:
             nsteps=NSTEPS,
             gamma=0.99,
             lambda_=0.95,
-            return_type="GAE",
+            returns=Returns.GAE,
             num_epochs=4,
             num_minibatches=4,
             validate_freq=1_000_000,

@@ -2,25 +2,39 @@
 
 These are pure numpy functions over a ``(T, B, ...)`` rollout (``T``
 timesteps, ``B`` parallel envs).  Splitting them out of
-:class:`rlib.training.SyncMultiEnvTrainer` keeps the trainer focused
-on the training loop and makes the estimators trivially unit-testable.
+:class:`rlib.training.SyncMultiEnvTrainer` keeps the trainer focused on
+the training loop and makes the estimators trivially unit-testable.
 
-The trainer dispatches to one of these via the :data:`RETURN_FUNCTIONS`
-table keyed on :class:`~rlib.training.config.ReturnType`.
+Dispatch
+========
+
+The trainer chooses between estimators via the :class:`Returns` enum:
+``self.config.returns(rewards, values, last_values, dones, gamma, lambda_)``
+calls into the function the enum member wraps.
+
+The enum's *name* is the canonical CLI / log string (``"NSTEP"``,
+``"GAE"``, ``"LAMBDA"``); the *value* is the callable.  Adding a new
+estimator is therefore a two-line change: write the function, add an
+enum member.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import enum
 
 import numpy as np
 
 __all__ = [
     "GAE",
-    "RETURN_FUNCTIONS",
+    "Returns",
     "lambda_return",
     "nstep_return",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Underlying estimator functions
+# ---------------------------------------------------------------------------
 
 
 def nstep_return(
@@ -30,7 +44,7 @@ def nstep_return(
     gamma: float = 0.99,
     clip: bool = False,
 ) -> np.ndarray:
-    """N-step bootstrapped return :math:`R_t = r_t + \\gamma R_{t+1}`.
+    r"""N-step bootstrapped return :math:`R_t = r_t + \gamma R_{t+1}`.
 
     The recursion is reset to zero whenever ``dones[t]`` is set so the
     next episode's rewards don't bleed into the current one.
@@ -58,7 +72,7 @@ def lambda_return(
     lambda_: float = 0.8,
     clip: bool = False,
 ) -> np.ndarray:
-    """λ-return :math:`R^\\lambda_t = r_t + \\gamma((1-\\lambda) V_{t+1} + \\lambda R^\\lambda_{t+1})`.
+    r"""λ-return :math:`R^\lambda_t = r_t + \gamma((1-\lambda) V_{t+1} + \lambda R^\lambda_{t+1})`.
 
     With ``lambda_ == 1.0`` collapses to the n-step return; with
     ``lambda_ == 0.0`` collapses to one-step TD.
@@ -100,17 +114,15 @@ def GAE(
     return Adv
 
 
-# ``GAE`` returns the advantage sequence; the trainer's default loop
-# expects targets, so the dispatch wrapper adds ``+ values`` for it.
-def _gae_targets(
-    rewards: np.ndarray,
-    values: np.ndarray,
-    last_values: np.ndarray,
-    dones: np.ndarray,
-    gamma: float,
-    lambda_: float,
-) -> np.ndarray:
-    return GAE(rewards, values, last_values, dones, gamma=gamma, lambda_=lambda_) + values
+# ---------------------------------------------------------------------------
+# Uniform-signature wrappers used by the trainer's main loop.
+#
+# All three accept the full ``(rewards, values, last_values, dones,
+# gamma, lambda_)`` signature and return *value targets* (so the trainer
+# can pass the result straight to ``model.backprop`` without further
+# arithmetic).  The N-step branch ignores ``values`` and ``lambda_``;
+# the GAE branch adds ``+ values`` to the advantage to obtain targets.
+# ---------------------------------------------------------------------------
 
 
 def _nstep_targets(
@@ -121,8 +133,18 @@ def _nstep_targets(
     gamma: float,
     lambda_: float,
 ) -> np.ndarray:
-    # values + lambda_ ignored — n-step doesn't use them.
     return nstep_return(rewards, last_values, dones, gamma=gamma)
+
+
+def _gae_targets(
+    rewards: np.ndarray,
+    values: np.ndarray,
+    last_values: np.ndarray,
+    dones: np.ndarray,
+    gamma: float,
+    lambda_: float,
+) -> np.ndarray:
+    return GAE(rewards, values, last_values, dones, gamma=gamma, lambda_=lambda_) + values
 
 
 def _lambda_targets(
@@ -136,15 +158,39 @@ def _lambda_targets(
     return lambda_return(rewards, values, last_values, dones, gamma=gamma, lambda_=lambda_)
 
 
-_ReturnFn = Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, float], np.ndarray]
+# ---------------------------------------------------------------------------
+# Enum
+# ---------------------------------------------------------------------------
 
-#: Dispatch table from :data:`~rlib.training.config.ReturnType` to the
-#: function the default n-step training loop should call.  All entries
-#: have the same uniform signature ``(rewards, values, last_values,
-#: dones, gamma, lambda_) -> targets`` so the trainer can call them
-#: without knowing which estimator was chosen.
-RETURN_FUNCTIONS: dict[str, _ReturnFn] = {
-    "nstep": _nstep_targets,
-    "GAE": _gae_targets,
-    "lambda": _lambda_targets,
-}
+
+class Returns(enum.Enum):
+    """Return / advantage estimators.
+
+    The enum *name* is the canonical CLI / log string (``"NSTEP"``,
+    ``"GAE"``, ``"LAMBDA"``).  The *value* is the wrapped callable, so
+    members are directly callable::
+
+        targets = Returns.GAE(rewards, values, last_values, dones, 0.99, 0.95)
+
+    The :func:`enum.member` wrapper around each value is required so
+    Python's enum metaclass treats the function as an enum member rather
+    than as an instance method bound on the class.
+    """
+
+    NSTEP = enum.member(_nstep_targets)
+    GAE = enum.member(_gae_targets)
+    LAMBDA = enum.member(_lambda_targets)
+
+    def __call__(
+        self,
+        rewards: np.ndarray,
+        values: np.ndarray,
+        last_values: np.ndarray,
+        dones: np.ndarray,
+        gamma: float,
+        lambda_: float,
+    ) -> np.ndarray:
+        return self.value(rewards, values, last_values, dones, gamma, lambda_)
+
+    def __str__(self) -> str:
+        return self.name

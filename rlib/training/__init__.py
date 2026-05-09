@@ -11,21 +11,22 @@ live next to their trainer class in ``rlib/<Agent>/trainer.py``.
 
 Internals exposed for advanced use / testing:
 
-* :data:`RETURN_FUNCTIONS` — dispatch table for n-step / GAE / λ-return.
+* :class:`Returns` — enum of return / advantage estimators.
+* :func:`GAE`, :func:`lambda_return`, :func:`nstep_return` — the
+  underlying free functions.
 * :class:`Validator`, :class:`AsyncValidator`, :class:`SyncValidator`,
   :func:`make_validator` — validation strategy implementations.
 """
 
-from rlib.training.config import ReturnType, TrainerConfig, TrainMode
-from rlib.training.returns import GAE, RETURN_FUNCTIONS, lambda_return, nstep_return
+from rlib.training.config import TrainerConfig, TrainMode
+from rlib.training.returns import GAE, Returns, lambda_return, nstep_return
 from rlib.training.trainer import SyncMultiEnvTrainer
 from rlib.training.validation import AsyncValidator, SyncValidator, Validator, make_validator
 
 __all__ = [
     "GAE",
     "AsyncValidator",
-    "RETURN_FUNCTIONS",
-    "ReturnType",
+    "Returns",
     "SyncMultiEnvTrainer",
     "SyncValidator",
     "TrainMode",

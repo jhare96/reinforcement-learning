@@ -11,8 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from rlib.envs.vec_env import BatchEnv, DummyBatchEnv
 from rlib.networks import Model
-from rlib.training.config import TrainerConfig
-from rlib.training.returns import RETURN_FUNCTIONS
+from rlib.training.config import TrainerConfig, TrainMode
 from rlib.training.validation import Validator, make_validator
 from rlib.utils.utils import fold_batch
 
@@ -62,7 +61,7 @@ class SyncMultiEnvTrainer:
         self.train_mode = config.train_mode
         self.total_steps = config.total_steps
         self.nsteps = config.nsteps
-        self.return_type = config.return_type
+        self.returns = config.returns
         self.gamma = config.gamma
         self.lambda_ = config.lambda_
         self.validate_freq = config.validate_freq
@@ -118,12 +117,12 @@ class SyncMultiEnvTrainer:
         self.env.close()
 
     def train(self):
-        if self.train_mode == 'nstep':
+        if self.train_mode is TrainMode.NSTEP:
             self._train_nstep()
-        elif self.train_mode == 'onestep':
+        elif self.train_mode is TrainMode.ONESTEP:
             self._train_onestep()
         else:
-            raise ValueError(f'{self.train_mode} is not a valid training mode')
+            raise ValueError(f'{self.train_mode!r} is not a valid training mode')
 
     def _train_nstep(self) -> None:
         '''Default multi-step training loop for synchronous training over multiple environments.
@@ -136,7 +135,7 @@ class SyncMultiEnvTrainer:
         start = time.time()
         batch_size = self.num_envs * self.nsteps
         num_updates = self.total_steps // batch_size
-        return_fn = RETURN_FUNCTIONS[self.config.return_type]
+        return_fn = self.config.returns
         # main loop
         for t in range(self.t, num_updates + 1):
             states, actions, rewards, dones, values, last_values = self.rollout()
@@ -226,7 +225,7 @@ class SyncMultiEnvTrainer:
             'train_mode': self.train_mode,
             'total_steps': self.total_steps,
             'nsteps': self.nsteps,
-            'return_type': self.return_type,
+            'returns': self.returns,
             'gamma': self.gamma,
             'lambda_': self.lambda_,
             'validate_freq': self.validate_freq,

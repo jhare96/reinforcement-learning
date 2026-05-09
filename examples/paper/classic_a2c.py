@@ -18,7 +18,7 @@ import torch
 from examples.paper.common import CLASSIC_ENVS, CLASSIC_VAL_STEPS, MLP, classic_envs, get_device
 from rlib.A2C import A2CTrainer, ActorCritic
 from rlib.networks import A2CConfig
-from rlib.training import TrainerConfig
+from rlib.training import Returns, TrainerConfig
 
 TOTAL_STEPS = 5_000_000
 
@@ -55,7 +55,7 @@ def main(env_id: str = "CartPole-v1") -> None:
             nsteps=5,
             gamma=0.99,
             lambda_=0.95,
-            return_type="GAE",
+            returns=Returns.GAE,
             validate_freq=100_000,
             num_val_episodes=8,
             max_val_steps=CLASSIC_VAL_STEPS,

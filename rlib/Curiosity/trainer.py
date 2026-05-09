@@ -4,6 +4,7 @@ import numpy as np
 
 from rlib.Curiosity.model import Curiosity
 from rlib.training import SyncMultiEnvTrainer, TrainerConfig
+from rlib.training.returns import nstep_return
 from rlib.utils.utils import RunningMeanStd, fastsample, fold_batch, stack_many
 
 
@@ -59,7 +60,7 @@ class CuriosityTrainer(SyncMultiEnvTrainer):
             states, next_states, actions, rewards, dones, values = self.rollout()
             _, last_values = self.model.evaluate(next_states[-1])
 
-            R = self.nstep_return(rewards, last_values, dones)
+            R = nstep_return(rewards, last_values, dones)
             Adv = R - values
             # delta = rewards + self.gamma * values[:-1] - values[1:]
             # Adv = self.multistep_target(delta, values[-1], dones, gamma=self.gamma*self.lambda_)

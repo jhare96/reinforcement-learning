@@ -12,7 +12,7 @@ from rlib.networks import A2CConfig, ModelConfig, PPOConfig
 from rlib.PPO import PPOTrainerConfig
 from rlib.RANDAL import RANDALTrainerConfig
 from rlib.RND import RNDTrainerConfig
-from rlib.training import ReturnType, TrainerConfig, TrainMode
+from rlib.training import Returns, TrainerConfig, TrainMode
 from rlib.Unreal import UnrealTrainerConfig
 
 
@@ -70,8 +70,8 @@ class TestPPOConfig:
 class TestTrainerConfig:
     def test_default_values(self) -> None:
         cfg = TrainerConfig()
-        assert cfg.train_mode == "nstep"
-        assert cfg.return_type == "nstep"
+        assert cfg.train_mode is TrainMode.NSTEP
+        assert cfg.returns is Returns.NSTEP
         assert cfg.gamma == 0.99
         assert cfg.lambda_ == 0.95
         assert cfg.log_scalars is True
@@ -83,19 +83,20 @@ class TestTrainerConfig:
 
     @pytest.mark.parametrize("mode", ["foo", "TD", "", "n-step"])
     def test_invalid_train_mode_rejected(self, mode: str) -> None:
-        with pytest.raises(ValueError, match="train_mode"):
-            TrainerConfig(train_mode=mode)  # type: ignore[arg-type]
+        # The enum constructor itself rejects unknown values.
+        with pytest.raises(ValueError):
+            TrainerConfig(train_mode=TrainMode(mode))
 
-    @pytest.mark.parametrize("ret", ["TD", "advantage", "", "nsteps"])
-    def test_invalid_return_type_rejected(self, ret: str) -> None:
-        with pytest.raises(ValueError, match="return_type"):
-            TrainerConfig(return_type=ret)  # type: ignore[arg-type]
+    @pytest.mark.parametrize("name", ["TD", "advantage", "", "nsteps"])
+    def test_invalid_returns_rejected(self, name: str) -> None:
+        with pytest.raises(KeyError):
+            TrainerConfig(returns=Returns[name])
 
     def test_valid_modes_accepted(self) -> None:
-        for mode in ("nstep", "onestep"):
-            TrainerConfig(train_mode=mode)  # type: ignore[arg-type]
-        for ret in ("nstep", "lambda", "GAE"):
-            TrainerConfig(return_type=ret)  # type: ignore[arg-type]
+        for mode in (TrainMode.NSTEP, TrainMode.ONESTEP):
+            TrainerConfig(train_mode=mode)
+        for ret in (Returns.NSTEP, Returns.LAMBDA, Returns.GAE):
+            TrainerConfig(returns=ret)
 
     def test_asdict_round_trip(self) -> None:
         cfg = TrainerConfig(total_steps=10_000, gamma=0.95, log_scalars=False)
@@ -103,9 +104,9 @@ class TestTrainerConfig:
         assert TrainerConfig(**d) == cfg
 
     def test_typing_aliases_exist(self) -> None:
-        # Smoke-check that the Literal aliases are importable.
+        # Smoke-check that the enums are importable.
         assert TrainMode is not None
-        assert ReturnType is not None
+        assert Returns is not None
 
 
 class TestModelConfigIntegration:
@@ -176,9 +177,8 @@ class TestPerTrainerConfigs:
         assert isinstance(cfg, TrainerConfig)
         # Inherited base field is still accessible.
         assert cfg.gamma == 0.99
-        # Validators on the base still fire.
-        with pytest.raises(ValueError, match="train_mode"):
-            cls(train_mode="bogus")  # type: ignore[arg-type]
+        # Inherited enum default still applies.
+        assert cfg.train_mode is TrainMode.NSTEP
 
     def test_ppo_extra_fields(self) -> None:
         cfg = PPOTrainerConfig(num_epochs=2, num_minibatches=8)

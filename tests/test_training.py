@@ -13,7 +13,7 @@ from rlib.training import (
     Validator,
     make_validator,
 )
-from rlib.training.returns import GAE, RETURN_FUNCTIONS, lambda_return, nstep_return
+from rlib.training.returns import GAE, Returns, lambda_return, nstep_return
 
 # ---------------------------------------------------------------------------
 # Validation
@@ -113,33 +113,38 @@ class TestAsyncValidator:
 
 
 class TestReturnFunctions:
-    def test_dispatch_table_has_all_three(self) -> None:
-        assert set(RETURN_FUNCTIONS) == {"nstep", "GAE", "lambda"}
+    def test_enum_has_all_three_members(self) -> None:
+        assert {m.name for m in Returns} == {"NSTEP", "GAE", "LAMBDA"}
 
-    def test_nstep_dispatch_matches_direct_call(self) -> None:
+    def test_nstep_enum_matches_direct_call(self) -> None:
         rewards = np.array([[1.0], [0.5], [0.0]], dtype=np.float32)
         values = np.array([[0.1], [0.2], [0.3]], dtype=np.float32)
         last_values = np.array([0.5], dtype=np.float32)
         dones = np.zeros_like(rewards)
         direct = nstep_return(rewards, last_values, dones, gamma=0.95)
-        via_dispatch = RETURN_FUNCTIONS["nstep"](rewards, values, last_values, dones, 0.95, 0.95)
-        np.testing.assert_array_equal(direct, via_dispatch)
+        via_enum = Returns.NSTEP(rewards, values, last_values, dones, 0.95, 0.95)
+        np.testing.assert_array_equal(direct, via_enum)
 
-    def test_gae_dispatch_returns_targets_not_advantages(self) -> None:
+    def test_gae_enum_returns_targets_not_advantages(self) -> None:
         rewards = np.array([[1.0], [0.5], [0.0]], dtype=np.float32)
         values = np.array([[0.1], [0.2], [0.3]], dtype=np.float32)
         last_values = np.array([0.5], dtype=np.float32)
         dones = np.zeros_like(rewards)
-        targets = RETURN_FUNCTIONS["GAE"](rewards, values, last_values, dones, 0.95, 0.95)
+        targets = Returns.GAE(rewards, values, last_values, dones, 0.95, 0.95)
         # Targets = advantages + values; advantages alone should be smaller in magnitude
         adv = GAE(rewards, values, last_values, dones, gamma=0.95, lambda_=0.95)
         np.testing.assert_allclose(targets, adv + values, rtol=1e-6)
 
-    def test_lambda_dispatch(self) -> None:
+    def test_lambda_enum_matches_direct_call(self) -> None:
         rewards = np.array([[1.0], [0.5], [0.0]], dtype=np.float32)
         values = np.array([[0.1], [0.2], [0.3]], dtype=np.float32)
         last_values = np.array([0.5], dtype=np.float32)
         dones = np.zeros_like(rewards)
         direct = lambda_return(rewards, values, last_values, dones, gamma=0.99, lambda_=0.9)
-        via_dispatch = RETURN_FUNCTIONS["lambda"](rewards, values, last_values, dones, 0.99, 0.9)
-        np.testing.assert_allclose(direct, via_dispatch, rtol=1e-6)
+        via_enum = Returns.LAMBDA(rewards, values, last_values, dones, 0.99, 0.9)
+        np.testing.assert_allclose(direct, via_enum, rtol=1e-6)
+
+    def test_str_returns_name(self) -> None:
+        assert str(Returns.GAE) == "GAE"
+        assert str(Returns.NSTEP) == "NSTEP"
+        assert str(Returns.LAMBDA) == "LAMBDA"

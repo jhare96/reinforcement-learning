@@ -30,6 +30,7 @@ import sys
 from examples.paper.common import ATARI_ENVS, ATARI_VAL_STEPS, NatureCNN, atari_envs, get_device
 from rlib.networks import PPOConfig
 from rlib.RND import RND, PredictorCNN, RNDTrainer, RNDTrainerConfig
+from rlib.training import Returns
 
 NSTEPS = 128
 NUM_WORKERS = 32
@@ -71,7 +72,7 @@ def main(env_id: str = "MontezumaRevengeDeterministic-v4") -> None:
             gamma=0.999,  # extrinsic discount γ_e
             gamma_intr=0.99,  # intrinsic discount γ_i
             lambda_=0.95,
-            return_type="GAE",
+            returns=Returns.GAE,
             init_obs_steps=6400,
             num_epochs=4,
             num_minibatches=4,
