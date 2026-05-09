@@ -43,6 +43,7 @@ dependencies = [
     "Pillow>=9.0",
     "tensorboard>=2.10",
     "PyYAML>=6.0",
+    "tqdm>=4.60",
 ]
 
 [project.optional-dependencies]

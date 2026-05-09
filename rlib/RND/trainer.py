@@ -2,6 +2,7 @@ import time
 from dataclasses import dataclass
 
 import numpy as np
+from tqdm.auto import tqdm
 
 from rlib.RND.model import RND, RewardForwardFilter
 from rlib.training import SyncMultiEnvTrainer, TrainerConfig
@@ -73,7 +74,7 @@ class RNDTrainer(SyncMultiEnvTrainer):
         mini_batch_size = self.nsteps // self.num_minibatches
         start = time.time()
         # main loop
-        for t in range(1, num_updates + 1):
+        for t in self._progress(range(1, num_updates + 1), num_updates):
             (
                 states,
                 next_states,
@@ -172,7 +173,7 @@ class RNDTrainer(SyncMultiEnvTrainer):
             if self.save_freq > 0 and t % (self.save_freq // batch_size) == 0:
                 s += 1
                 self.save(s)
-                print('saved model')
+                tqdm.write('saved model')
 
     def get_action(self, states):
         policies, values_extr, values_intr = self.agent.evaluate(states)

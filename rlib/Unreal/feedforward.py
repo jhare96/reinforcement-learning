@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 import torch.nn.functional as F
+from tqdm.auto import tqdm
 
 from rlib.A2C.model import A2CConfig, ActorCritic
 from rlib.agent import Agent
@@ -380,7 +381,7 @@ class UnrealTrainer(SyncMultiEnvTrainer):
         self.populate_memory()
         # main loop
         start = time.time()
-        for t in range(1, num_updates + 1):
+        for t in self._progress(range(1, num_updates + 1), num_updates):
             states, actions, rewards, values, dones, last_values = self.rollout()
 
             # R = self.nstep_return(rewards, last_values, dones, clip=False)
@@ -429,7 +430,7 @@ class UnrealTrainer(SyncMultiEnvTrainer):
             if self.save_freq > 0 and t % (self.save_freq // batch_size) == 0:
                 s += 1
                 self.save(self.s)
-                print('saved model')
+                tqdm.write('saved model')
 
     def rollout(
         self,

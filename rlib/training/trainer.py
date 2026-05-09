@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from tqdm.auto import tqdm
 
 from rlib.agent import Agent
 from rlib.envs.vec_env import BatchEnv, DummyBatchEnv
@@ -24,6 +25,7 @@ class SyncMultiEnvTrainer:
     validator: Validator
     train_writer: SummaryWriter
     train_log_dir: str
+    _pbar: tqdm | None = None
 
     def __init__(
         self,
@@ -137,7 +139,7 @@ class SyncMultiEnvTrainer:
         num_updates = self.total_steps // batch_size
         return_fn = self.config.returns
         # main loop
-        for t in range(self.t, num_updates + 1):
+        for t in self._progress(range(self.t, num_updates + 1), num_updates):
             states, actions, rewards, dones, values, last_values = self.rollout()
             R = return_fn(rewards, values, last_values, dones, self.gamma, self.lambda_)
             # stack all states, actions and Rs from all workers into a single batch
@@ -159,7 +161,7 @@ class SyncMultiEnvTrainer:
             if self.save_freq > 0 and t % (self.save_freq // batch_size) == 0:
                 self.s += 1
                 self.save(self.s)
-                print('saved model')
+                tqdm.write('saved model')
 
             if (
                 self.target_freq > 0 and t % (self.target_freq // batch_size) == 0
@@ -172,6 +174,24 @@ class SyncMultiEnvTrainer:
         """Collect ``self.nsteps`` of experience and return whatever the agent's training loop expects."""
         raise NotImplementedError(f'{type(self).__name__} does not implement rollout')
 
+    def _progress(self, iterator, num_updates: int):
+        """Wrap a training-loop range with a tqdm progress bar.
+
+        The bar is stored on ``self._pbar`` so :meth:`validation_summary`
+        can attach the latest score / loss / fps as postfix metrics.
+        ``initial`` is set to ``self.t - 1`` so resuming from a checkpoint
+        starts the bar at the correct position.
+        """
+        self._pbar = tqdm(
+            iterator,
+            total=num_updates,
+            initial=max(self.t - 1, 0),
+            desc=f'{type(self).__name__}[{self.env_id}]',
+            unit='update',
+            dynamic_ncols=True,
+        )
+        return self._pbar
+
     def validation_summary(self, t, loss, start, render):
         batch_size = self.num_envs * self.nsteps
         tot_steps = t * batch_size
@@ -180,11 +200,13 @@ class SyncMultiEnvTrainer:
         fps = frames_per_update / time_taken
 
         score = self._validation_score(render)
-        print(
+        tqdm.write(
             f"update {t}, validation score {score:f}, total steps {tot_steps}, "
             f"loss {loss:f}, time taken for {frames_per_update} frames:{time_taken:f}s, "
-            f"fps {fps:f} \t\t\t"
+            f"fps {fps:f}"
         )
+        if self._pbar is not None:
+            self._pbar.set_postfix(score=f"{score:.2f}", loss=f"{loss:.4f}", fps=f"{fps:.0f}")
 
         if self.log_scalars:
             self.train_writer.add_scalar('validation/score', score, tot_steps)

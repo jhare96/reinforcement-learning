@@ -5,6 +5,7 @@ import time
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from tqdm.auto import tqdm
 
 from rlib.training.returns import Returns
 from rlib.utils.utils import fold_batch, one_hot, stack_many
@@ -97,7 +98,7 @@ class VINTrainer:
         num_updates = self.total_steps // batch_size
         # main loop
         start = time.time()
-        for t in range(self.t, num_updates + 1):
+        for t in self._progress(range(self.t, num_updates + 1), num_updates):
             states, locs, actions, rewards, dones, infos, values, last_values = self.rollout()
             R = self.returns(rewards, values, last_values, dones, self.gamma, self.lambda_)
             # stack all states, actions and Rs from all workers into a single batch
@@ -117,7 +118,7 @@ class VINTrainer:
             if self.save_freq > 0 and t % (self.save_freq // batch_size) == 0:
                 self.s += 1
                 self.save(self.s)
-                print('saved model')
+                tqdm.write('saved model')
 
             if (
                 self.target_freq > 0 and t % (self.target_freq // batch_size) == 0

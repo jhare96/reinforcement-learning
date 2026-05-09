@@ -1,6 +1,7 @@
 import time
 
 import numpy as np
+from tqdm.auto import tqdm
 
 from rlib.Curiosity.model import Curiosity
 from rlib.training import SyncMultiEnvTrainer, TrainerConfig
@@ -56,7 +57,7 @@ class CuriosityTrainer(SyncMultiEnvTrainer):
         start = time.time()
         # main loop
         batch_size = self.num_envs * self.nsteps
-        for t in range(1, num_updates + 1):
+        for t in self._progress(range(1, num_updates + 1), num_updates):
             states, next_states, actions, rewards, dones, values = self.rollout()
             _, last_values = self.agent.evaluate(next_states[-1])
 
@@ -91,7 +92,7 @@ class CuriosityTrainer(SyncMultiEnvTrainer):
             if self.save_freq > 0 and t % (self.save_freq // batch_size) == 0:
                 s += 1
                 self.save_model(s)
-                print('saved model')
+                tqdm.write('saved model')
 
     def get_action(self, state):
         policy, value = self.agent.evaluate(state)

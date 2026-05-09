@@ -2,6 +2,7 @@ import threading
 import time
 
 import numpy as np
+from tqdm.auto import tqdm
 
 from rlib.A2C.model import ActorCritic, ActorCritic_LSTM
 from rlib.training import SyncMultiEnvTrainer, TrainerConfig
@@ -46,7 +47,7 @@ class A2CTrainer(SyncMultiEnvTrainer):
         y = np.zeros(self.num_envs)
         num_steps = self.total_steps // self.num_envs
         start = time.time()
-        for t in range(1, num_steps + 1):
+        for t in self._progress(range(1, num_steps + 1), num_steps):
             policies, values = self.agent.evaluate(self.states)
             actions = fastsample(policies)
             next_states, rewards, dones, infos = self.env.step(actions)
@@ -70,7 +71,7 @@ class A2CTrainer(SyncMultiEnvTrainer):
             if self.save_freq > 0 and t % (self.save_freq // self.num_envs) == 0:
                 self.s += 1
                 self.save(self.s)
-                print('saved model')
+                tqdm.write('saved model')
 
 
 class A2CLSTMTrainer(SyncMultiEnvTrainer):
@@ -117,7 +118,7 @@ class A2CLSTMTrainer(SyncMultiEnvTrainer):
         num_updates = self.total_steps // batch_size
         s = 0
         # main loop
-        for t in range(1, num_updates + 1):
+        for t in self._progress(range(1, num_updates + 1), num_updates):
             states, actions, rewards, first_hidden, dones, values, last_values = self.rollout()
 
             R = self.returns(rewards, values, last_values, dones, self.gamma, self.lambda_)
@@ -141,7 +142,7 @@ class A2CLSTMTrainer(SyncMultiEnvTrainer):
             if self.save_freq > 0 and t % (self.save_freq // batch_size) == 0:
                 s += 1
                 self.save_model(s)
-                print('saved model')
+                tqdm.write('saved model')
 
     def _validate_async(self, env, num_ep, max_steps, render=False):
         for _episode in range(num_ep):

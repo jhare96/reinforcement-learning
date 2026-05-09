@@ -5,6 +5,7 @@ from collections import deque
 import numpy as np
 import torch
 import torch.nn.functional as F
+from tqdm.auto import tqdm
 
 from rlib.A2C.model import A2CConfig, A2CModel
 from rlib.agent import Agent
@@ -454,7 +455,7 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
         self.populate_memory()
 
         # main loop
-        for t in range(1, num_updates + 1):
+        for t in self._progress(range(1, num_updates + 1), num_updates):
             states, actions, rewards, hidden_init, prev_acts_rewards, dones, last_values = (
                 self.rollout()
             )
@@ -512,7 +513,7 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
             if self.save_freq > 0 and t % (self.save_freq // batch_size) == 0:
                 s += 1
                 self.save_model(s)
-                print('saved model')
+                tqdm.write('saved model')
 
     def rollout(
         self,

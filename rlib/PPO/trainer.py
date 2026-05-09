@@ -2,6 +2,7 @@ import time
 from dataclasses import dataclass
 
 import numpy as np
+from tqdm.auto import tqdm
 
 from rlib.PPO.model import PPO
 from rlib.training import SyncMultiEnvTrainer, TrainerConfig
@@ -40,7 +41,7 @@ class PPOTrainer(SyncMultiEnvTrainer):
         mini_batch_size = self.nsteps // self.num_minibatches
         start = time.time()
         # main loop
-        for t in range(1, num_updates + 1):
+        for t in self._progress(range(1, num_updates + 1), num_updates):
             # rollout_start = time.time()
             states, actions, rewards, values, last_values, old_policies, dones = self.rollout()
             # print('rollout time', time.time()-rollout_start)
@@ -91,7 +92,7 @@ class PPOTrainer(SyncMultiEnvTrainer):
             if self.save_freq > 0 and t % (self.save_freq // batch_size) == 0:
                 s += 1
                 self.save(s)
-                print('saved model')
+                tqdm.write('saved model')
 
     def get_action(self, states):
         policies, values = self.agent.evaluate(states)
