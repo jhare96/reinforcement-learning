@@ -222,6 +222,8 @@ class UnrealTrainerConfig(TrainerConfig):
 class UnrealTrainer(SyncMultiEnvTrainer):
     """Trainer for the feed-forward UNREAL agent."""
 
+    agent: UnrealA2C2
+
     def __init__(
         self,
         envs,

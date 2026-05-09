@@ -26,6 +26,8 @@ class RNDTrainerConfig(TrainerConfig):
 class RNDTrainer(SyncMultiEnvTrainer):
     """Trainer for the Random Network Distillation agent."""
 
+    agent: RND
+
     def __init__(
         self,
         envs,

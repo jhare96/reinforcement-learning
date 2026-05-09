@@ -26,7 +26,7 @@ from rlib.training.returns import Returns
 __all__ = ["TrainMode", "TrainerConfig"]
 
 
-class TrainMode(str, enum.Enum):
+class TrainMode(enum.StrEnum):
     """Whether the trainer dispatches to ``_train_nstep`` or ``_train_onestep``."""
 
     NSTEP = "nstep"

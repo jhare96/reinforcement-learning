@@ -11,6 +11,8 @@ from rlib.utils.utils import fastsample, fold_batch, stack_many
 class A2CTrainer(SyncMultiEnvTrainer):
     """Synchronous Advantage Actor-Critic trainer (feed-forward)."""
 
+    agent: ActorCritic
+
     def __init__(
         self,
         envs,
@@ -74,6 +76,8 @@ class A2CTrainer(SyncMultiEnvTrainer):
 class A2CLSTMTrainer(SyncMultiEnvTrainer):
     """Recurrent A2C trainer (LSTM hidden state propagated across rollouts)."""
 
+    agent: ActorCritic_LSTM
+
     def __init__(
         self,
         envs,
@@ -136,7 +140,7 @@ class A2CLSTMTrainer(SyncMultiEnvTrainer):
 
             if self.save_freq > 0 and t % (self.save_freq // batch_size) == 0:
                 s += 1
-                self.saver.save(self.sess, str(self.model_dir + str(s) + ".ckpt"))
+                self.save_model(s)
                 print('saved model')
 
     def _validate_async(self, env, num_ep, max_steps, render=False):
@@ -170,6 +174,8 @@ class A2CLSTMTrainer(SyncMultiEnvTrainer):
     def validate_sync(self, render):
         episode_scores = []
         env = self.val_envs
+        # _validation_score only dispatches here for non-list val_envs.
+        assert not isinstance(env, list)
         for _episode in range(self.num_val_episodes // len(env)):
             states = env.reset()
             episode_score = []

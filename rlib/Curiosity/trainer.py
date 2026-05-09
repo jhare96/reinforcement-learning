@@ -24,6 +24,8 @@ class RollingObs:
 class CuriosityTrainer(SyncMultiEnvTrainer):
     """Trainer for the Intrinsic Curiosity Module agent."""
 
+    agent: Curiosity
+
     def __init__(
         self,
         envs,
@@ -33,8 +35,6 @@ class CuriosityTrainer(SyncMultiEnvTrainer):
     ):
         super().__init__(envs, agent, val_envs, config=config)
         self.state_obs = RollingObs()
-        self.state_mean = None
-        self.state_std = None
         self.lambda_ = 0.95
 
     def init_state_obs(self, num_steps):
@@ -90,9 +90,7 @@ class CuriosityTrainer(SyncMultiEnvTrainer):
 
             if self.save_freq > 0 and t % (self.save_freq // batch_size) == 0:
                 s += 1
-                self.saver.save(
-                    self.sess, str(self.model_dir + self.current_time + '/' + str(s) + ".ckpt")
-                )
+                self.save_model(s)
                 print('saved model')
 
     def get_action(self, state):

@@ -372,6 +372,8 @@ class UnrealA2C(Agent):
 class UnrealLSTMTrainer(SyncMultiEnvTrainer):
     """Trainer for the recurrent UNREAL agent (LSTM body, action+reward feed-in)."""
 
+    agent: UnrealA2C
+
     def __init__(
         self,
         envs,
@@ -551,7 +553,7 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
 
             if self.save_freq > 0 and t % (self.save_freq // batch_size) == 0:
                 s += 1
-                self.saver.save(s)
+                self.save_model(s)
                 print('saved model')
 
     def rollout(
@@ -627,6 +629,8 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
     def validate_sync(self, render=False):
         episode_scores = []
         env = self.val_envs
+        # _validation_score only dispatches here for non-list val_envs.
+        assert not isinstance(env, list)
         for _episode in range(self.num_val_episodes // self.num_envs):
             states = env.reset()
             episode_score = []

@@ -33,6 +33,8 @@ class RANDALTrainerConfig(RNDTrainerConfig):
 class RANDALTrainer(SyncMultiEnvTrainer):
     """Trainer for the RANDAL agent (RND + UNREAL auxiliary tasks)."""
 
+    agent: RANDAL
+
     def __init__(
         self,
         envs,

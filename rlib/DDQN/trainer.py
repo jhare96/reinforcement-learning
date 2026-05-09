@@ -20,6 +20,8 @@ class DDQNTrainerConfig(TrainerConfig):
 class SyncDDQN(SyncMultiEnvTrainer):
     """Synchronous Double-DQN trainer (n-step or one-step TD)."""
 
+    agent: DQN
+
     def __init__(
         self,
         envs,

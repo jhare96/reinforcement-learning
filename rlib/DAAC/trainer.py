@@ -21,6 +21,8 @@ class DAACTrainerConfig(TrainerConfig):
 class DAACTrainer(SyncMultiEnvTrainer):
     """Trainer for the Decoupled Advantage Actor-Critic agent."""
 
+    agent: DAAC
+
     def __init__(
         self,
         envs,

@@ -1,57 +1,40 @@
-import copy
-from collections import deque
+"""Replay buffers for off-policy agents.
 
-# from DoubleDQN import ReplayMemory as RM
-import gymnasium as gym
+Currently houses :class:`NumpyReplayMemory`, a fixed-capacity ring
+buffer storing ``(state, action, reward, next_state, done)`` transitions
+in pre-allocated numpy arrays.
+
+The legacy ``FrameBuffer`` / ``stack_frames`` helpers (which depended
+on ``scipy.misc.imresize``, removed from SciPy 1.3) have been retired
+in favour of the frame-stacking wrappers in :mod:`rlib.envs.wrappers`.
+"""
+
+from __future__ import annotations
+
 import numpy as np
-import scipy.misc
-
-
-class FrameBuffer:
-    def __init__(self, size, width, height, stack, Atari=True):
-        self._idx = 0
-        self._replay_length = size
-        self._stack_size = stack
-        self._Atari = Atari
-        self._frames = np.empty((size, width, height), dtype=np.uint8)
-        self._blank_frame = np.zeros((width, height))
-        self._stacked_frames = deque(
-            [self._blank_frame for i in range(self._stack_size)], maxlen=self._stack_size
-        )
-
-    def preprocess_frame(self, frame):
-        frame = scipy.misc.imresize(frame, [110, 84, 3])[110 - 84 :, 0:84, :]
-        frame = np.dot(frame[..., :3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
-        return frame
-
-    def addFrame(self, frame):
-        self._frames[self._idx] = self.preprocess_frame(frame)
-        self._idx = (self._idx + 1) % self._replay_length
-
-    def stack_frames(self, frame, reset=False):
-        self.addFrame(frame)
-        if reset:
-            for _ in range(self._stack_size):
-                self._stacked_frames.append(self._frames[self._idx - 1])
-        else:
-            self._stacked_frames.append(self._frames[self._idx - 1])
-
-        return copy.copy(self._stacked_frames)
 
 
 class NumpyReplayMemory:
-    def __init__(self, replaysize, shape):
+    """Fixed-capacity ring buffer of ``(s, a, r, s', done)`` transitions."""
+
+    def __init__(self, replaysize: int, shape: tuple[int, ...]) -> None:
         self._idx = 0
         self._full_flag = False
         self._replay_length = replaysize
         self._states = np.zeros((replaysize, *shape), dtype=np.uint8)
-        self._actions = np.zeros((replaysize), dtype=np.int64)
-        self._rewards = np.zeros((replaysize), dtype=np.int64)
+        self._actions = np.zeros((replaysize,), dtype=np.int64)
+        self._rewards = np.zeros((replaysize,), dtype=np.float32)
         self._next_states = np.zeros((replaysize, *shape), dtype=np.uint8)
-        self._dones = np.zeros((replaysize), dtype=np.int64)
-        # self._stacked_frames = deque([np.zeros((width,height), dtype=np.uint8) for i in range(stack)], maxlen=stack)
+        self._dones = np.zeros((replaysize,), dtype=bool)
 
-    def addMemory(self, state, action, reward, next_state, done):
+    def addMemory(
+        self,
+        state: np.ndarray,
+        action: int,
+        reward: float,
+        next_state: np.ndarray,
+        done: bool,
+    ) -> None:
         self._states[self._idx] = state
         self._actions[self._idx] = action
         self._rewards[self._idx] = reward
@@ -63,126 +46,19 @@ class NumpyReplayMemory:
         else:
             self._idx += 1
 
-    def __len__(self):
-        if not self._full_flag:
-            return self._idx
-        else:
-            return self._replay_length
+    def __len__(self) -> int:
+        return self._replay_length if self._full_flag else self._idx
 
-    def sample(self, batch_size):
-        if not self._full_flag:
-            idxs = np.random.choice(self._idx, size=batch_size, replace=False)
-        else:
-            idxs = np.random.choice(self._replay_length, size=batch_size, replace=False)
-
-        states = self._states[idxs]
-        actions = self._actions[idxs]
-        rewards = self._rewards[idxs]
-        next_states = self._next_states[idxs]
-        dones = self._dones[idxs]
-
-        return states, actions, rewards, next_states, dones, idxs
-
-
-class replayMemory:
-    def __init__(self, replay_length, pixels=True):
-        self._replay_length = replay_length
-        self._pixels = pixels
-        self._memory = []
-        self._idx = 0
-
-    def addMemory(self, state, action, reward, next_state, final_state):
-        if len(self._memory) < self._replay_length:
-            self._memory.append((state, action, reward, next_state, final_state))
-        else:
-            self._memory[self._idx] = (state, action, reward, next_state, final_state)
-        self._idx = (self._idx + 1) % self._replay_length
-
-    def getlen(self):
-        return len(self._memory)
-
-    def resetMemory(self):
-        self._memory = []
-        self._idx = 0
-
-    def sample(self, batch_size):
-        idxs = np.random.choice(np.arange(len(self._memory)), size=batch_size, replace=False)
-        sample = [self._memory[i] for i in idxs]
-
-        if self._pixels:  # stack images to get k previous states
-            states = np.stack([np.stack(sample[i][0], axis=2) for i in range(len(sample))], axis=0)
-            next_states = np.stack(
-                [np.stack(sample[i][3], axis=2) for i in range(len(sample))], axis=0
-            )
-        else:
-            states = np.stack([sample[i][0] for i in range(len(sample))], axis=0)
-            next_states = np.stack([sample[i][3] for i in range(len(sample))], axis=0)
-
-        actions = np.array([sample[i][1] for i in range(len(sample))])
-        rewards = np.array([sample[i][2] for i in range(len(sample))])
-        final_state = np.array([sample[i][4] for i in range(len(sample))])
-
-        return (states, actions, rewards, next_states, final_state)
-
-
-def stack_frames(frame, stacked_frames, reset=False):
-    # Preprocess frame
-    frame = preprocess_frame(frame)
-
-    if reset:
-        # Clear our stacked_frames
-        stacked_frames = deque([np.zeros((84, 84), dtype=np.uint8) for i in range(4)], maxlen=4)
-
-        # Because we're in a new episode, copy the same frame 4x
-        for _i in range(4):
-            stacked_frames.append(frame)
-
-        # Stack the frames
-        stacked_state = np.stack(stacked_frames, axis=2)
-
-    else:
-        # Append frame to deque, automatically removes the oldest frame
-        stacked_frames.append(frame)
-
-        # Build the stacked state (first dimension specifies different frames)
-        stacked_state = np.stack(stacked_frames, axis=2)
-
-    return stacked_state, stacked_frames
-
-
-def preprocess_frame(frame):
-    frame = scipy.misc.imresize(frame, [110, 84, 3])[110 - 84 :, 0:84, :]
-    frame = np.dot(frame[..., :3], np.array([0.299, 0.587, 0.114])).astype(dtype=np.uint8)
-    return frame
-
-
-def main():
-    env = gym.make('SpaceInvaders-v0')
-    replay = NumpyReplayMemory(100000, 84, 84, 4)
-    # framebuffer = FrameBuffer(100000,84,84,4)
-
-    obs = env.reset()
-    # state = framebuffer.stack_frames(obs,reset=True)
-    state = replay.stack_frames(obs, reset=True)
-    print("state shape", state.shape)
-    avg_time = 0
-    for t in range(int(1e7)):
-        action = env.action_space.sample()
-        obs, reward, done, info = env.step(action)
-        # next_state = framebuffer.stack_frames(obs,reset=False)
-        next_state = replay.stack_frames(obs, reset=False)
-        print("next state shape", next_state.shape)
-        replay.addMemory(state, action, reward, next_state, done)
-        state = next_state
-        if done:
-            obs = env.reset()
-            # state = framebuffer.stack_frames(obs,reset=True)
-            state = replay.stack_frames(obs, reset=True)
-
-        if t % 10000 == 0:
-            print("time taken for 10000 steps", avg_time)
-            avg_time = 0
-
-
-if __name__ == "__main__":
-    main()
+    def sample(
+        self, batch_size: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        upper = self._replay_length if self._full_flag else self._idx
+        idxs = np.random.choice(upper, size=batch_size, replace=False)
+        return (
+            self._states[idxs],
+            self._actions[idxs],
+            self._rewards[idxs],
+            self._next_states[idxs],
+            self._dones[idxs],
+            idxs,
+        )

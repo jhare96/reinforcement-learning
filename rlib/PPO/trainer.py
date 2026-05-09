@@ -20,6 +20,8 @@ class PPOTrainerConfig(TrainerConfig):
 class PPOTrainer(SyncMultiEnvTrainer):
     """Trainer for the clipped-objective PPO model."""
 
+    agent: PPO
+
     def __init__(
         self,
         envs,

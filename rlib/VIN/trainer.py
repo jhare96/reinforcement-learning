@@ -1,7 +1,9 @@
+import os
 import threading
 import time
 
 import numpy as np
+import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from rlib.training.returns import Returns
@@ -73,6 +75,8 @@ class VINTrainer:
 
         self.log_scalars = log_scalars
         self.log_dir = log_dir
+        self.model_dir = model_dir
+        self.s = 0  # number of saves made
 
         if log_scalars:
             # Tensorboard Variables
@@ -124,6 +128,16 @@ class VINTrainer:
 
     def eval_state(self, state, loc):
         return self.agent.evaluate(state, loc)
+
+    def save(self, s: int) -> None:
+        """Save the agent weights to ``<model_dir>/<s>.pt``."""
+        os.makedirs(self.model_dir, exist_ok=True)
+        torch.save(self.agent.state_dict(), f"{self.model_dir}/{s}.pt")
+
+    def update_target(self) -> None:
+        """No-op: VIN has no target network. Defined so the training loop
+        can call it unconditionally when ``update_target_freq > 0``."""
+        return
 
     def rollout(self):
         rollout = []
