@@ -22,8 +22,7 @@ class A2CTrainer(SyncMultiEnvTrainer):
 
     def get_action(self, state):
         policy, value = self.model.evaluate(state)
-        action = int(fastsample(policy))
-        return action
+        return int(fastsample(policy).item())
 
     def rollout(
         self,
@@ -49,7 +48,8 @@ class A2CTrainer(SyncMultiEnvTrainer):
             policies, values = self.model.evaluate(self.states)
             actions = fastsample(policies)
             next_states, rewards, dones, infos = self.env.step(actions)
-            y = rewards + self.gamma * self.model.get_value(next_states) * (1 - dones)
+            _, next_values = self.model.evaluate(next_states)
+            y = rewards + self.gamma * next_values * (1 - dones)
 
             loss_value = self.model.backprop(states, y, actions)
             states = next_states
@@ -147,7 +147,7 @@ class A2CLSTMTrainer(SyncMultiEnvTrainer):
             for t in range(max_steps):
                 policy, value, hidden = self.model.evaluate(state[None, None], hidden)
                 # print('policy', policy, 'value', value)
-                action = int(fastsample(policy))
+                action = int(fastsample(policy).item())
                 next_state, reward, done, info = env.step(action)
                 state = next_state
 

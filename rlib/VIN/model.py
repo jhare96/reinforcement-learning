@@ -63,8 +63,8 @@ class VINCNN(Agent):
             totorch(states, self.device), torch.tensor(x).to(self.device), torch.tensor(y)
         ).to(self.device)
         actions_onehot = totorch(one_hot(actions, self.action_size), self.device)
-        Qvalue = torch.sum(Qsa * actions_onehot, axis=1)
-        loss = torch.mean(torch.square(totorch(R).float().cuda() - Qvalue))
+        Qvalue = torch.sum(Qsa * actions_onehot, dim=1)
+        loss = torch.mean(torch.square(totorch(R, self.device).float() - Qvalue))
         return self._train_step(loss)
 
     def value_iteration(self, r, V):

@@ -45,10 +45,10 @@ class NumpyReplayMemory:
         self._full_flag = False
         self._replay_length = replaysize
         self._states = np.zeros((replaysize, *shape), dtype=np.uint8)
-        self._actions = np.zeros((replaysize), dtype=np.int)
-        self._rewards = np.zeros((replaysize), dtype=np.int)
+        self._actions = np.zeros((replaysize), dtype=np.int64)
+        self._rewards = np.zeros((replaysize), dtype=np.int64)
         self._next_states = np.zeros((replaysize, *shape), dtype=np.uint8)
-        self._dones = np.zeros((replaysize), dtype=np.int)
+        self._dones = np.zeros((replaysize), dtype=np.int64)
         # self._stacked_frames = deque([np.zeros((width,height), dtype=np.uint8) for i in range(stack)], maxlen=stack)
 
     def addMemory(self, state, action, reward, next_state, done):

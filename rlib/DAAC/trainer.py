@@ -108,8 +108,7 @@ class DAACTrainer(SyncMultiEnvTrainer):
 
     def get_action(self, states):
         policies, values = self.model.evaluate(states)
-        actions = fastsample(policies)
-        return actions
+        return int(fastsample(policies).item())
 
     def rollout(self):
         rollout = []

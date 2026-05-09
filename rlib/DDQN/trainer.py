@@ -68,7 +68,7 @@ class SyncDDQN(SyncMultiEnvTrainer):
         if np.random.uniform() < self.epsilon_test:
             action = np.random.randint(self.action_size)
         else:
-            action = np.argmax(self.model.evaluate(state))
+            action = int(np.argmax(self.model.evaluate(state)))
         return action
 
     def update_target(self):
@@ -99,7 +99,7 @@ class SyncDDQN(SyncMultiEnvTrainer):
             np.stack(dones),
         )
         TargetQsa = unfold_batch(
-            self.TargetQ.evaluate(fold_batch(states)), self.num_steps, self.num_envs
+            self.TargetQ.evaluate(fold_batch(states)), self.nsteps, self.num_envs
         )  # Q(s,a; theta-1)
         values = np.sum(
             TargetQsa * one_hot(actions, self.action_size), axis=-1

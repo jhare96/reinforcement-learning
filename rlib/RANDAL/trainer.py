@@ -12,6 +12,7 @@ from rlib.training.returns import GAE
 from rlib.utils.utils import (
     RunningMeanStd,
     fastsample,
+    fold_batch,
     fold_many,
     stack_many,
 )
@@ -182,7 +183,10 @@ class RANDALTrainer(SyncMultiEnvTrainer):
                 next_states[:, -1] if len(next_states.shape) == 4 else next_states
             )  # [num_envs, channels, height, width] for convolutions, assume frame stack
             states += next_states
-        return states / num_steps
+        # Reduce over the env axis too — running stats are a single per-pixel
+        # mean shared across all envs, so it broadcasts cleanly against the
+        # folded ``(T*B, ...)`` batch produced during training.
+        return (states / num_steps).mean(axis=0)
 
     def _train_nstep(self):
         # stats for normalising states
@@ -213,9 +217,10 @@ class RANDALTrainer(SyncMultiEnvTrainer):
                 old_policies,
                 dones,
             ) = self.rollout()
-            # update state normalisation statistics
+            # update state normalisation statistics — fold (T, B, ...) into (T*B, ...)
+            # so the running mean has one entry per pixel, not per env.
             self.update_minmax(states)
-            self.state_mean, self.state_std = self.state_obs.update(next_states)
+            self.state_mean, self.state_std = self.state_obs.update(fold_batch(next_states))
             mean, std = self.state_mean, self.state_std
 
             replay_states, replay_actions, replay_Re, Qaux_target, replay_dones = (
@@ -325,8 +330,7 @@ class RANDALTrainer(SyncMultiEnvTrainer):
 
     def get_action(self, states):
         policies, values_extr, values_intr = self.model.evaluate(states)
-        actions = fastsample(policies)
-        return actions
+        return int(fastsample(policies).item())
 
     def rollout(self):
         rollout = []
