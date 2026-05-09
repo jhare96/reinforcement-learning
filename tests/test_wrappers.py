@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from rlib.envs import RLEnvBase, make
+from rlib.envs import RLEnv, make
 from rlib.envs.wrappers import (
     ClipRewardEnv,
     DummyEnv,
@@ -15,11 +15,11 @@ from rlib.envs.wrappers import (
 )
 
 
-class _ConstantRewardEnv(RLEnvBase):
+class _ConstantRewardEnv(RLEnv):
     """Minimal hand-rolled env emitting a constant reward each step.
 
     ``observation_space`` / ``action_space`` are properties on
-    :class:`RLEnvBase`; we override them as plain attributes via the
+    :class:`RLEnv`; we override them as plain attributes via the
     class body below so the abstract base contract is satisfied.
     """
 

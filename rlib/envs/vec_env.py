@@ -1,6 +1,6 @@
 """Vectorised environment runners for rlib.
 
-The single-env :class:`~rlib.envs.RLEnvBase` contract uses the modern
+The single-env :class:`~rlib.envs.RLEnv` contract uses the modern
 5-tuple ``(obs, reward, terminated, truncated, info)``.  Agent rollout
 code in this library, however, has historically consumed the legacy
 4-tuple ``(obs, rewards, dones, infos)``.  We keep that agent-facing
@@ -10,7 +10,7 @@ the vec env runners below are the **single boundary** where
 :meth:`RLVecEnv.merge_done`).
 
 Adding a new backend therefore never requires touching this file: just
-ship a new :class:`~rlib.envs.RLEnvBase` adapter and the vec runners
+ship a new :class:`~rlib.envs.RLEnv` adapter and the vec runners
 will consume it without changes.
 """
 
@@ -26,7 +26,7 @@ from typing import Any
 
 import numpy as np
 
-from rlib.envs.base import RLEnvBase, RLVecEnv
+from rlib.envs.base import RLEnv, RLVecEnv
 from rlib.envs.registry import make as _make_env
 from rlib.envs.registry import wrap as _wrap_env
 
@@ -36,7 +36,7 @@ from rlib.envs.registry import wrap as _wrap_env
 
 
 class Env:
-    """Run a single :class:`RLEnvBase` in its own subprocess.
+    """Run a single :class:`RLEnv` in its own subprocess.
 
     The worker process speaks the modern 5-tuple internally; this
     parent-side class collapses ``(terminated, truncated)`` into a
@@ -44,7 +44,7 @@ class Env:
     the legacy 4-tuple.
     """
 
-    def __init__(self, env: RLEnvBase, worker_id: int = 0):
+    def __init__(self, env: RLEnv, worker_id: int = 0):
         self.parent, self.child = mp.Pipe()
         self.worker = Worker(worker_id, env, self.child)
         self.worker.daemon = True
@@ -85,7 +85,7 @@ class Env:
 
 
 class Worker(mp.Process):
-    def __init__(self, worker_id: int, env: RLEnvBase, connection):
+    def __init__(self, worker_id: int, env: RLEnv, connection):
         np.random.seed()
         mp.Process.__init__(self)
         self.env = _wrap_env(env)
@@ -130,7 +130,7 @@ class BatchEnv(RLVecEnv):
 
     def __init__(
         self,
-        env_constructor: Callable[..., RLEnvBase],
+        env_constructor: Callable[..., RLEnv],
         env_id: str,
         num_envs: int,
         blocking: bool = False,
@@ -277,14 +277,14 @@ class DummyBatchEnv(RLVecEnv):
 
     def __init__(
         self,
-        env_constructor: Callable[..., RLEnvBase],
+        env_constructor: Callable[..., RLEnv],
         env_id: str,
         num_envs: int,
         make_args: dict | None = None,
         **env_args,
     ):
         make_args = make_args or {}
-        self.envs: list[RLEnvBase] = [
+        self.envs: list[RLEnv] = [
             env_constructor(_make_env(env_id, **make_args), **env_args) for _ in range(num_envs)
         ]
 

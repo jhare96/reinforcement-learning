@@ -8,7 +8,7 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
-from rlib.envs import RLEnv, RLEnvBase, RLVecEnv, make, register_backend, wrap
+from rlib.envs import RLEnv, RLVecEnv, make, register_backend, wrap
 from rlib.envs.adapters import GymnasiumAdapter
 
 # ---------------------------------------------------------------------------
@@ -19,7 +19,7 @@ from rlib.envs.adapters import GymnasiumAdapter
 def test_make_from_env_id_returns_rlenvbase() -> None:
     env = make("CartPole-v1")
     try:
-        assert isinstance(env, RLEnvBase)
+        assert isinstance(env, RLEnv)
         assert isinstance(env, GymnasiumAdapter)
     finally:
         env.close()
@@ -29,7 +29,7 @@ def test_make_from_env_object_round_trip() -> None:
     raw = gym.make("CartPole-v1")
     env = make(raw)
     try:
-        assert isinstance(env, RLEnvBase)
+        assert isinstance(env, RLEnv)
         obs, info = env.reset(seed=0)
         assert obs.shape == raw.observation_space.shape
         assert isinstance(info, dict)
@@ -69,7 +69,7 @@ def test_register_custom_backend() -> None:
         def close(self) -> None:
             return None
 
-    class ToyAdapter(RLEnvBase):
+    class ToyAdapter(RLEnv):
         def __init__(self, env: Toy) -> None:
             self.env = env
 

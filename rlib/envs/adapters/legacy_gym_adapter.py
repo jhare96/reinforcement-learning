@@ -18,10 +18,10 @@ from typing import Any
 
 from gym import Env
 
-from rlib.envs.base import RLEnvBase
+from rlib.envs.base import RLEnv
 
 
-class LegacyGymAdapter(RLEnvBase):
+class LegacyGymAdapter(RLEnv):
     """Wrap a legacy (pre-0.26) ``gym.Env`` as an :class:`~rlib.envs.RLEnv`."""
 
     def __init__(self, env: Env) -> None:

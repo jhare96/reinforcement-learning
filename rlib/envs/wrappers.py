@@ -1,6 +1,6 @@
 """Environment wrappers used by the rlib agent suite.
 
-All wrappers subclass :class:`rlib.envs.RLEnvBase` and use the **modern
+All wrappers subclass :class:`rlib.envs.RLEnv` and use the **modern
 5-tuple** ``(obs, reward, terminated, truncated, info)`` step API
 together with ``(obs, info)`` reset.  Backend translation (legacy gym
 4-tuple, dm_env, ...) happens once in :mod:`rlib.envs.adapters`; from
@@ -10,7 +10,7 @@ Wrappers can compose freely (``StackEnv(GreyScaleEnv(env))``).  Each
 wrapper just has to implement ``reset`` / ``step`` against the modern
 contract; everything else (``observation_space``, ``unwrapped``,
 ``__getattr__`` forwarding, ``close``, ...) is provided by
-:class:`RLEnvBase`.
+:class:`RLEnv`.
 """
 
 # Code was inspired from or modified from OpenAI baselines
@@ -25,25 +25,25 @@ import numpy as np
 import torch
 from PIL import Image
 
-from rlib.envs.base import RLEnvBase
+from rlib.envs.base import RLEnv
 from rlib.envs.registry import wrap
 
 
-def _ensure_rlenv(env) -> RLEnvBase:
-    """Coerce a raw backend env into an :class:`RLEnvBase` if needed."""
-    if isinstance(env, RLEnvBase):
+def _ensure_rlenv(env) -> RLEnv:
+    """Coerce a raw backend env into an :class:`RLEnv` if needed."""
+    if isinstance(env, RLEnv):
         return env
     return wrap(env)
 
 
-def AtariValidate(env) -> RLEnvBase:
+def AtariValidate(env) -> RLEnv:
     env = FireResetEnv(env)
     env = NoopResetEnv(env, max_op=3000)
     env = StackEnv(env)
     return env
 
 
-class RescaleEnv(RLEnvBase):
+class RescaleEnv(RLEnv):
     def __init__(self, env, size: int):
         self.env = _ensure_rlenv(env)
         self.size = size
@@ -62,7 +62,7 @@ class RescaleEnv(RLEnvBase):
         return self.preprocess(obs), info
 
 
-class AtariRescale42x42(RLEnvBase):
+class AtariRescale42x42(RLEnv):
     def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
@@ -81,7 +81,7 @@ class AtariRescale42x42(RLEnvBase):
         return self.preprocess(obs), info
 
 
-class AtariRescaleEnv(RLEnvBase):
+class AtariRescaleEnv(RLEnv):
     def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
@@ -99,7 +99,7 @@ class AtariRescaleEnv(RLEnvBase):
         return self.preprocess(obs), info
 
 
-class AtariRescaleColour(RLEnvBase):
+class AtariRescaleColour(RLEnv):
     def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
@@ -116,8 +116,8 @@ class AtariRescaleColour(RLEnvBase):
         return self.preprocess(obs), info
 
 
-class DummyEnv(RLEnvBase):
-    """No-op wrapper. Mostly useful as an explicit conversion to ``RLEnvBase``."""
+class DummyEnv(RLEnv):
+    """No-op wrapper. Mostly useful as an explicit conversion to ``RLEnv``."""
 
     def __init__(self, env):
         self.env = _ensure_rlenv(env)
@@ -129,7 +129,7 @@ class DummyEnv(RLEnvBase):
         return self.env.reset(seed=seed, options=options)
 
 
-class NoopResetEnv(RLEnvBase):
+class NoopResetEnv(RLEnv):
     def __init__(self, env, max_op: int = 7):
         self.env = _ensure_rlenv(env)
         self.max_op = max_op
@@ -147,7 +147,7 @@ class NoopResetEnv(RLEnvBase):
         return self.env.step(action)
 
 
-class ClipRewardEnv(RLEnvBase):
+class ClipRewardEnv(RLEnv):
     def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
@@ -160,7 +160,7 @@ class ClipRewardEnv(RLEnvBase):
         return self.env.reset(seed=seed, options=options)
 
 
-class NoRewardEnv(RLEnvBase):
+class NoRewardEnv(RLEnv):
     def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
@@ -172,7 +172,7 @@ class NoRewardEnv(RLEnvBase):
         return self.env.reset(seed=seed, options=options)
 
 
-class FireResetEnv(RLEnvBase):
+class FireResetEnv(RLEnv):
     def __init__(self, env):
         """Take action on reset for environments that are fixed until firing."""
         self.env = _ensure_rlenv(env)
@@ -193,7 +193,7 @@ class FireResetEnv(RLEnvBase):
         return self.env.step(ac)
 
 
-class EpisodicLifeEnv(RLEnvBase):
+class EpisodicLifeEnv(RLEnv):
     def __init__(self, env):
         self.env = _ensure_rlenv(env)
         self.lives = 0
@@ -216,7 +216,7 @@ class EpisodicLifeEnv(RLEnvBase):
         return obs, info
 
 
-class TimeLimitEnv(RLEnvBase):
+class TimeLimitEnv(RLEnv):
     def __init__(self, env, time_limit: int):
         self.env = _ensure_rlenv(env)
         self._time_limit = time_limit
@@ -234,7 +234,7 @@ class TimeLimitEnv(RLEnvBase):
         return self.env.reset(seed=seed, options=options)
 
 
-class StackEnv(RLEnvBase):
+class StackEnv(RLEnv):
     def __init__(self, env, k: int = 4):
         self.env = _ensure_rlenv(env)
         self._stacked_frames: deque[np.ndarray] = deque([], maxlen=k)
@@ -258,7 +258,7 @@ class StackEnv(RLEnvBase):
         return np.concatenate(self._stacked_frames, axis=2)
 
 
-class AutoResetEnv(RLEnvBase):
+class AutoResetEnv(RLEnv):
     def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
@@ -272,7 +272,7 @@ class AutoResetEnv(RLEnvBase):
         return self.env.reset(seed=seed, options=options)
 
 
-class ChannelsFirstEnv(RLEnvBase):
+class ChannelsFirstEnv(RLEnv):
     def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
@@ -285,7 +285,7 @@ class ChannelsFirstEnv(RLEnvBase):
         return obs.transpose(2, 0, 1), info
 
 
-class GreyScaleEnv(RLEnvBase):
+class GreyScaleEnv(RLEnv):
     def __init__(self, env):
         self.env = _ensure_rlenv(env)
 
@@ -302,7 +302,7 @@ class GreyScaleEnv(RLEnvBase):
         return self.preprocess(obs), info
 
 
-class ToTorchEnv(RLEnvBase):
+class ToTorchEnv(RLEnv):
     def __init__(self, env, device: str = 'cuda:0'):
         self.env = _ensure_rlenv(env)
         self.device = device
@@ -329,7 +329,7 @@ def apple_pickgame(
     auto_reset: bool = False,
     max_steps: int | None = 1000,
     channels_first: bool = True,
-) -> RLEnvBase:
+) -> RLEnv:
     if auto_reset:
         env = AutoResetEnv(env)
     if max_steps is not None:
@@ -354,7 +354,7 @@ def AtariEnv(
     time_limit: int | None = None,
     channels_first: bool = True,
     auto_reset: bool = False,
-) -> RLEnvBase:
+) -> RLEnv:
     """Wrapper function for Deterministic Atari env.
 
     ``assert 'Deterministic' in env.spec.id``

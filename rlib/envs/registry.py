@@ -12,9 +12,9 @@ PettingZoo single-agent slices, EnvPool, an in-house simulator — with
 
 .. code-block:: python
 
-    from rlib.envs import register_backend, RLEnvBase
+    from rlib.envs import register_backend, RLEnv
 
-    class MySimAdapter(RLEnvBase):
+    class MySimAdapter(RLEnv):
         def __init__(self, env): self.env = env
         def reset(self, *, seed=None, options=None): ...
         def step(self, action): ...
@@ -28,18 +28,18 @@ from collections.abc import Callable
 from typing import Any
 
 from rlib.envs.adapters import GymnasiumAdapter, LegacyGymAdapter
-from rlib.envs.base import RLEnvBase
+from rlib.envs.base import RLEnv
 
 __all__ = ["make", "register_backend", "wrap"]
 
 
 _Predicate = Callable[[Any], bool]
-_Backends: list[tuple[str, _Predicate, type[RLEnvBase]]] = []
+_Backends: list[tuple[str, _Predicate, type[RLEnv]]] = []
 
 
 def register_backend(
     predicate: _Predicate,
-    adapter_cls: type[RLEnvBase],
+    adapter_cls: type[RLEnv],
     *,
     name: str = "",
     prepend: bool = False,
@@ -49,7 +49,7 @@ def register_backend(
     Args:
         predicate: Callable taking a candidate env and returning
             ``True`` if ``adapter_cls`` can wrap it.
-        adapter_cls: An :class:`RLEnvBase` subclass whose ``__init__``
+        adapter_cls: An :class:`RLEnv` subclass whose ``__init__``
             takes the candidate env as its only positional argument.
         name: Optional human-readable identifier (used by
             ``backend="..."`` in :func:`make` and for debugging).
@@ -80,14 +80,14 @@ register_backend(_looks_like_gymnasium, GymnasiumAdapter, name="gymnasium")
 register_backend(_looks_like_legacy_gym, LegacyGymAdapter, name="gym")
 
 
-def wrap(env: Any, *, backend: str = "auto") -> RLEnvBase:
-    """Wrap an existing env object in the appropriate :class:`RLEnvBase`.
+def wrap(env: Any, *, backend: str = "auto") -> RLEnv:
+    """Wrap an existing env object in the appropriate :class:`RLEnv`.
 
-    If ``env`` is already an :class:`RLEnvBase`, it is returned
+    If ``env`` is already an :class:`RLEnv`, it is returned
     unchanged.  Otherwise the registry is consulted; pass an explicit
     ``backend="<name>"`` to bypass auto-detection.
     """
-    if isinstance(env, RLEnvBase):
+    if isinstance(env, RLEnv):
         return env
 
     if backend != "auto":
@@ -114,7 +114,7 @@ def make(
     *,
     backend: str = "auto",
     **kwargs: Any,
-) -> RLEnvBase:
+) -> RLEnv:
     """Construct (if needed) and wrap an environment.
 
     * If ``env_or_id`` is a string, it is passed to

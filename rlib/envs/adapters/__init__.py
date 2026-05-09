@@ -1,7 +1,7 @@
 """Backend adapter implementations.
 
 Each backend is a self-contained file exposing one
-:class:`~rlib.envs.base.RLEnvBase` subclass.  Add a new backend by
+:class:`~rlib.envs.base.RLEnv` subclass.  Add a new backend by
 dropping a new file here and registering it via
 :func:`rlib.envs.register_backend`.
 """

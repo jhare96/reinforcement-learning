@@ -3,14 +3,10 @@
 This module defines a single, backend-agnostic environment API that the
 rest of the library targets:
 
-* :class:`RLEnv` — a :class:`typing.Protocol` describing the canonical
-  contract.  Use it for type annotations.  Any object that *structurally*
-  matches it (e.g. a third-party simulator that already exposes the
-  modern Gymnasium signature) is automatically an ``RLEnv``.
-* :class:`RLEnvBase` — an abstract base class providing the same contract
-  with helpful defaults (``__getattr__`` delegation, ``unwrapped``,
-  context-manager support, ...).  Backend adapters and wrappers shipped
-  with rlib inherit from it.
+* :class:`RLEnv` — abstract base class providing the canonical
+  single-env contract, with helpful defaults (``__getattr__``
+  delegation, ``unwrapped``, context-manager support, ...).  Backend
+  adapters and wrappers shipped with rlib inherit from it.
 * :class:`RLVecEnv` — abstract base for vectorised env implementations.
   Concrete vec envs (``BatchEnv``/``DummyBatchEnv``) collapse the
   per-env 5-tuple into the legacy 4-tuple at this single boundary so
@@ -29,34 +25,12 @@ zero-cost pass-through, while other backends (legacy ``gym``,
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
-__all__ = ["RLEnv", "RLEnvBase", "RLVecEnv"]
-
-
-@runtime_checkable
-class RLEnv(Protocol):
-    """Structural type describing rlib's canonical single-env contract.
-
-    Any object exposing these members satisfies the protocol; no
-    inheritance is required.  Use this in annotations:
-
-    .. code-block:: python
-
-        def my_wrapper(env: RLEnv) -> RLEnv: ...
-    """
-
-    observation_space: Any
-    action_space: Any
-
-    def reset(self, *, seed: Any = None, options: Any = None) -> tuple[Any, dict]: ...
-
-    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict]: ...
-
-    def close(self) -> None: ...
+__all__ = ["RLEnv", "RLVecEnv"]
 
 
-class RLEnvBase(ABC):
+class RLEnv(ABC):
     """Concrete-friendly base class for rlib adapters and wrappers.
 
     Subclasses *must* implement :meth:`reset` and :meth:`step` to honour
@@ -122,7 +96,7 @@ class RLEnvBase(ABC):
             return self.env.seed(seed)
         return None
 
-    def __enter__(self) -> "RLEnvBase":
+    def __enter__(self) -> "RLEnv":
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:

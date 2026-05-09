@@ -6,7 +6,7 @@ pass-through.  It exists so that:
 
 * The rlib codebase has a single, uniform entry point
   (``rlib.envs.make``) regardless of backend.
-* ``isinstance(env, RLEnvBase)`` works for sniffing.
+* ``isinstance(env, RLEnv)`` works for sniffing.
 * Future backend-specific quirks have an obvious home.
 """
 
@@ -16,10 +16,10 @@ from typing import Any
 
 from gymnasium import Env
 
-from rlib.envs.base import RLEnvBase
+from rlib.envs.base import RLEnv
 
 
-class GymnasiumAdapter(RLEnvBase):
+class GymnasiumAdapter(RLEnv):
     """Wrap a ``gymnasium.Env`` as an :class:`~rlib.envs.RLEnv`."""
 
     def __init__(self, env: Env) -> None:
