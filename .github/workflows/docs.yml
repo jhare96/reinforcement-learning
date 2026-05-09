@@ -60,7 +60,7 @@ jobs:
   deploy:
     name: deploy to GitHub Pages
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/v3')
     runs-on: ubuntu-latest
     permissions:
       contents: read

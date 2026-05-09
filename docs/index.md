@@ -1,21 +1,5 @@
-# rlib
+---8<--- "README.md"
 
-`rlib` is a small PyTorch-based reinforcement learning library. It provides
-clean implementations of several on-policy and off-policy agents together
-with a synchronous multi-environment trainer and a small zoo of Atari /
-classic-control wrappers.
-
-The library was originally developed for the MSc dissertation [*Dealing with
-sparse rewards in reinforcement learning*](https://arxiv.org/abs/1910.09281),
-which introduced the **RANDAL** agent included here.
-
-## Quick links
-
-- [Installation and quickstart](https://github.com/jhare96/reinforcement-learning#installation)
-- [Agent reference](agents.md)
-- [Environment integration](environments.md)
-- [Wrapper reference](wrappers.md)
-- [Changelog](changelog.md)
 
 ## Design overview
 

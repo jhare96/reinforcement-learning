@@ -1,7 +1,7 @@
 # rlib — a small PyTorch reinforcement learning library
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://github.com/jhare96/reinforcement-learning/blob/master/pyproject.toml)
 [![PyTorch](https://img.shields.io/badge/PyTorch-1.13%2B-EE4C2C.svg)](https://pytorch.org/)
 [![Gymnasium](https://img.shields.io/badge/Gymnasium-0.29%2B-007ACC.svg)](https://gymnasium.farama.org/)
 
@@ -53,7 +53,7 @@ A `Dockerfile` is provided for fully-reproducible setups (see below).
 
 ## Quickstart
 
-Train an A2C agent on CartPole-v1 in ~40 lines (see [`examples/cartpole_a2c.py`](examples/cartpole_a2c.py)
+Train an A2C agent on CartPole-v1 in ~40 lines (see [`examples/cartpole_a2c.py`](https://github.com/jhare96/reinforcement-learning/blob/master/examples/cartpole_a2c.py)
 for the runnable version):
 
 ```python
@@ -140,7 +140,7 @@ The Markdown sources live under [`docs/`](docs/).
 ## Contributing
 
 Bug reports, feature requests and pull requests are very welcome — please see
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for guidelines.
+[`CONTRIBUTING.md`](https://github.com/jhare96/reinforcement-learning/blob/master/CONTRIBUTING.md) for guidelines.
 
 ## Citation
 
@@ -171,5 +171,5 @@ To cite this repository directly:
 
 ## License
 
-Released under the [Apache License 2.0](LICENSE). See [`NOTICE`](NOTICE) for
+Released under the [Apache License 2.0](https://github.com/jhare96/reinforcement-learning/blob/master/LICENSE). See [`NOTICE`](https://github.com/jhare96/reinforcement-learning/blob/master/NOTICE) for
 attribution of code adapted from third parties (notably OpenAI Baselines).
