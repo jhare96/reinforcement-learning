@@ -40,7 +40,7 @@ def main(env_id: str = "CartPole-v1") -> None:
     input_size = train_envs.envs[0].observation_space.shape
     action_size = train_envs.envs[0].action_space.n
 
-    model = PPO(
+    agent = PPO(
         MLP,
         input_shape=input_size,
         action_size=action_size,
@@ -59,7 +59,7 @@ def main(env_id: str = "CartPole-v1") -> None:
 
     trainer = PPOTrainer(
         envs=train_envs,
-        model=model,
+        agent=agent,
         val_envs=val_envs,
         config=PPOTrainerConfig(
             total_steps=TOTAL_STEPS,

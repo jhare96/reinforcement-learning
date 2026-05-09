@@ -55,7 +55,7 @@ def main() -> None:
     input_size = train_envs.envs[0].observation_space.shape
     num_actions = train_envs.envs[0].action_space.n
 
-    model = ActorCritic(
+    agent = ActorCritic(
         MLP,
         input_size=input_size,
         action_size=num_actions,
@@ -72,7 +72,7 @@ def main() -> None:
 
     trainer = A2CTrainer(
         envs=train_envs,
-        model=model,
+        agent=agent,
         val_envs=val_envs,
         config=TrainerConfig(
             total_steps=int(1e5),

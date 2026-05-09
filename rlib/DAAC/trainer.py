@@ -24,11 +24,11 @@ class DAACTrainer(SyncMultiEnvTrainer):
     def __init__(
         self,
         envs,
-        model: DAAC,
+        agent: DAAC,
         val_envs,
         config: DAACTrainerConfig,
     ):
-        super().__init__(envs, model, val_envs, config=config)
+        super().__init__(envs, agent, val_envs, config=config)
         self.policy_epochs = config.policy_epochs
         self.value_epochs = config.value_epochs
         self.num_minibatches = config.num_minibatches
@@ -62,7 +62,7 @@ class DAACTrainer(SyncMultiEnvTrainer):
                         mb_Rs,
                     ) = fold_many(states[batch_idxs], R[batch_idxs])
 
-                    value_loss += self.model.value.backprop(mb_states.copy(), mb_Rs.copy())
+                    value_loss += self.agent.value.backprop(mb_states.copy(), mb_Rs.copy())
 
             value_loss /= self.value_epochs
 
@@ -80,7 +80,7 @@ class DAACTrainer(SyncMultiEnvTrainer):
                         old_policies[batch_idxs],
                     )
 
-                    policy_loss += self.model.policy.backprop(
+                    policy_loss += self.agent.policy.backprop(
                         mb_states.copy(), mb_Adv.copy(), mb_actions.copy(), mb_old_policies.copy()
                     )
 
@@ -107,13 +107,13 @@ class DAACTrainer(SyncMultiEnvTrainer):
                 print('saved model')
 
     def get_action(self, states):
-        policies, values = self.model.evaluate(states)
+        policies, values = self.agent.evaluate(states)
         return int(fastsample(policies).item())
 
     def rollout(self):
         rollout = []
         for _t in range(self.nsteps):
-            policies, values = self.model.evaluate(self.states)
+            policies, values = self.agent.evaluate(self.states)
             actions = fastsample(policies)
             next_states, rewards, dones, infos = self.env.step(actions)
             rollout.append((self.states, actions, rewards, values, policies, dones))
@@ -123,5 +123,5 @@ class DAACTrainer(SyncMultiEnvTrainer):
         (
             policy,
             last_values,
-        ) = self.model.evaluate(next_states)
+        ) = self.agent.evaluate(next_states)
         return states, actions, rewards, values, last_values, policies, dones

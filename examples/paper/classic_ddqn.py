@@ -36,13 +36,13 @@ def main(env_id: str = "CartPole-v1") -> None:
         grad_clip=0.5,
         device=device,
     )
-    model = DQN(MLP, input_size, action_size, config=model_cfg, optim=torch.optim.RMSprop)
-    target_model = DQN(MLP, input_size, action_size, config=model_cfg, optim=torch.optim.RMSprop)
+    agent = DQN(MLP, input_size, action_size, config=model_cfg, optim=torch.optim.RMSprop)
+    target_agent = DQN(MLP, input_size, action_size, config=model_cfg, optim=torch.optim.RMSprop)
 
     trainer = SyncDDQN(
         envs=train_envs,
-        model=model,
-        target_model=target_model,
+        agent=agent,
+        target_agent=target_agent,
         val_envs=val_envs,
         action_size=action_size,
         config=DDQNTrainerConfig(

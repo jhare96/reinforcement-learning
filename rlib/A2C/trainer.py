@@ -14,14 +14,14 @@ class A2CTrainer(SyncMultiEnvTrainer):
     def __init__(
         self,
         envs,
-        model: ActorCritic,
+        agent: ActorCritic,
         val_envs,
         config: TrainerConfig,
     ) -> None:
-        super().__init__(envs, model, val_envs, config=config)
+        super().__init__(envs, agent, val_envs, config=config)
 
     def get_action(self, state):
-        policy, value = self.model.evaluate(state)
+        policy, value = self.agent.evaluate(state)
         return int(fastsample(policy).item())
 
     def rollout(
@@ -29,14 +29,14 @@ class A2CTrainer(SyncMultiEnvTrainer):
     ):
         rollout = []
         for _t in range(self.nsteps):
-            policies, values = self.model.evaluate(self.states)
+            policies, values = self.agent.evaluate(self.states)
             actions = fastsample(policies)
             next_states, rewards, dones, infos = self.env.step(actions)
             rollout.append((self.states, actions, rewards, values, dones))
             self.states = next_states
 
         states, actions, rewards, values, dones = stack_many(*zip(*rollout))
-        _, last_values = self.model.evaluate(next_states)
+        _, last_values = self.agent.evaluate(next_states)
         return states, actions, rewards, dones, values, last_values
 
     def _train_onestep(self):
@@ -45,13 +45,13 @@ class A2CTrainer(SyncMultiEnvTrainer):
         num_steps = self.total_steps // self.num_envs
         start = time.time()
         for t in range(1, num_steps + 1):
-            policies, values = self.model.evaluate(self.states)
+            policies, values = self.agent.evaluate(self.states)
             actions = fastsample(policies)
             next_states, rewards, dones, infos = self.env.step(actions)
-            _, next_values = self.model.evaluate(next_states)
+            _, next_values = self.agent.evaluate(next_states)
             y = rewards + self.gamma * next_values * (1 - dones)
 
-            loss_value = self.model.backprop(states, y, actions)
+            loss_value = self.agent.backprop(states, y, actions)
             states = next_states
 
             if (
@@ -77,12 +77,12 @@ class A2CLSTMTrainer(SyncMultiEnvTrainer):
     def __init__(
         self,
         envs,
-        model: ActorCritic_LSTM,
+        agent: ActorCritic_LSTM,
         val_envs,
         config: TrainerConfig,
     ) -> None:
-        super().__init__(envs, model, val_envs, config=config)
-        self.prev_hidden = self.model.get_initial_hidden(self.num_envs)
+        super().__init__(envs, agent, val_envs, config=config)
+        self.prev_hidden = self.agent.get_initial_hidden(self.num_envs)
 
     def _validation_score(self, render: bool) -> float:
         # Recurrent: dispatch to the agent's own validate_sync /
@@ -120,7 +120,7 @@ class A2CLSTMTrainer(SyncMultiEnvTrainer):
 
             # stack all states, actions and Rs across all workers into a single batch
             actions, R = fold_batch(actions), fold_batch(R)
-            loss_value = self.model.backprop(states, R, actions, first_hidden, dones)
+            loss_value = self.agent.backprop(states, R, actions, first_hidden, dones)
 
             if (
                 self.render_freq > 0
@@ -143,9 +143,9 @@ class A2CLSTMTrainer(SyncMultiEnvTrainer):
         for _episode in range(num_ep):
             state = env.reset()
             episode_score = []
-            hidden = self.model.get_initial_hidden(1)
+            hidden = self.agent.get_initial_hidden(1)
             for t in range(max_steps):
-                policy, value, hidden = self.model.evaluate(state[None, None], hidden)
+                policy, value, hidden = self.agent.evaluate(state[None, None], hidden)
                 # print('policy', policy, 'value', value)
                 action = int(fastsample(policy).item())
                 next_state, reward, done, info = env.step(action)
@@ -173,9 +173,9 @@ class A2CLSTMTrainer(SyncMultiEnvTrainer):
         for _episode in range(self.num_val_episodes // len(env)):
             states = env.reset()
             episode_score = []
-            prev_hidden = self.model.get_initial_hidden(len(self.val_envs))
+            prev_hidden = self.agent.get_initial_hidden(len(self.val_envs))
             for t in range(self.val_steps):
-                policies, values, hidden = self.model.evaluate(states[None], prev_hidden)
+                policies, values, hidden = self.agent.evaluate(states[None], prev_hidden)
                 actions = fastsample(policies)
                 next_states, rewards, dones, infos = env.step(actions)
                 states = next_states
@@ -199,15 +199,15 @@ class A2CLSTMTrainer(SyncMultiEnvTrainer):
         rollout = []
         first_hidden = self.prev_hidden
         for _t in range(self.nsteps):
-            policies, values, hidden = self.model.evaluate(self.states[None], self.prev_hidden)
+            policies, values, hidden = self.agent.evaluate(self.states[None], self.prev_hidden)
             actions = fastsample(policies)
             next_states, rewards, dones, infos = self.env.step(actions)
             rollout.append((self.states, actions, rewards, values, dones))
             self.states = next_states
-            self.prev_hidden = self.model.mask_hidden(
+            self.prev_hidden = self.agent.mask_hidden(
                 hidden, dones
             )  # reset hidden state at end of episode
 
         states, actions, rewards, values, dones = stack_many(*zip(*rollout))
-        _, last_values, _ = self.model.evaluate(self.states[None], self.prev_hidden)
+        _, last_values, _ = self.agent.evaluate(self.states[None], self.prev_hidden)
         return states, actions, rewards, first_hidden, dones, values, last_values

@@ -29,11 +29,11 @@ class RNDTrainer(SyncMultiEnvTrainer):
     def __init__(
         self,
         envs,
-        model: RND,
+        agent: RND,
         val_envs,
         config: RNDTrainerConfig,
     ):
-        super().__init__(envs, model, val_envs, config=config)
+        super().__init__(envs, agent, val_envs, config=config)
 
         self.gamma_intr = config.gamma_intr
         self.num_epochs = config.num_epochs
@@ -47,7 +47,7 @@ class RNDTrainer(SyncMultiEnvTrainer):
     def init_state_obs(self, num_steps):
         states = 0
         for _i in range(num_steps):
-            rand_actions = np.random.randint(0, self.model.action_size, size=self.num_envs)
+            rand_actions = np.random.randint(0, self.agent.action_size, size=self.num_envs)
             next_states, rewards, dones, infos = self.env.step(rand_actions)
             next_states = (
                 next_states[:, -1] if len(next_states.shape) == 4 else next_states
@@ -141,7 +141,7 @@ class RNDTrainer(SyncMultiEnvTrainer):
                     mb_nextstates = mb_nextstates[
                         np.where(np.random.uniform(size=(mini_batch_size)) < self.pred_prob)
                     ]
-                    loss_value += self.model.backprop(
+                    loss_value += self.agent.backprop(
                         mb_states.copy(),
                         mb_nextstates.copy(),
                         mb_Re.copy(),
@@ -173,20 +173,20 @@ class RNDTrainer(SyncMultiEnvTrainer):
                 print('saved model')
 
     def get_action(self, states):
-        policies, values_extr, values_intr = self.model.evaluate(states)
+        policies, values_extr, values_intr = self.agent.evaluate(states)
         return int(fastsample(policies).item())
 
     def rollout(self):
         rollout = []
         for _t in range(self.nsteps):
-            policies, values_extr, values_intr = self.model.evaluate(self.states)
+            policies, values_extr, values_intr = self.agent.evaluate(self.states)
             actions = fastsample(policies)
             next_states, extr_rewards, dones, infos = self.env.step(actions)
 
             next_states__ = (
                 next_states[:, -1:] if len(next_states.shape) == 4 else next_states
             )  # [num_envs, channels, height, width] for convolutions
-            intr_rewards = self.model.intrinsic_reward(
+            intr_rewards = self.agent.intrinsic_reward(
                 next_states__, self.state_mean, self.state_std
             )
 
@@ -220,7 +220,7 @@ class RNDTrainer(SyncMultiEnvTrainer):
             last_policy,
             last_values_extr,
             last_values_intr,
-        ) = self.model.evaluate(self.states)
+        ) = self.agent.evaluate(self.states)
         return (
             states,
             next_states,

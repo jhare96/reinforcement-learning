@@ -19,7 +19,7 @@ from rlib.utils.utils import fold_batch
 class SyncMultiEnvTrainer:
     """Synchronous multi-env training framework for any :class:`rlib.networks.Model`."""
 
-    model: Agent
+    agent: Agent
     config: TrainerConfig
     validator: Validator
     train_writer: SummaryWriter
@@ -28,7 +28,7 @@ class SyncMultiEnvTrainer:
     def __init__(
         self,
         envs: BatchEnv | DummyBatchEnv,
-        model: Agent,
+        agent: Agent,
         val_envs: list | BatchEnv | DummyBatchEnv,
         config: TrainerConfig,
     ) -> None:
@@ -54,7 +54,7 @@ class SyncMultiEnvTrainer:
         self.num_envs = len(envs)
         self.env_id = envs.spec.id
         self.val_envs = val_envs
-        self.model = model
+        self.agent = agent
 
         # Mirror config fields onto ``self`` for ergonomics — most of
         # the legacy training-loop code reads ``self.gamma`` etc. directly.
@@ -106,9 +106,9 @@ class SyncMultiEnvTrainer:
             **dataclasses.asdict(self.config),
             'num_workers': self.num_envs,
         }
-        if hasattr(self.model, 'config'):
+        if hasattr(self.agent, 'config'):
             params.update(
-                {f'model.{k}': v for k, v in dataclasses.asdict(self.model.config).items()}
+                {f'agent.{k}': v for k, v in dataclasses.asdict(self.agent.config).items()}
             )
         filename = self.config.log_dir + '/hyperparameters.txt'
         self.save_hyperparameters(filename, **params)
@@ -142,7 +142,7 @@ class SyncMultiEnvTrainer:
             R = return_fn(rewards, values, last_values, dones, self.gamma, self.lambda_)
             # stack all states, actions and Rs from all workers into a single batch
             states, actions, R = fold_batch(states), fold_batch(actions), fold_batch(R)
-            loss_value = self.model.backprop(states, R, actions)
+            loss_value = self.agent.backprop(states, R, actions)
 
             if (
                 self.render_freq > 0
@@ -210,12 +210,12 @@ class SyncMultiEnvTrainer:
     def save_model(self, s):
         model_loc = f'{self.model_dir}/{s}.pt'
         # default saving method is to save session
-        torch.save(self.model.state_dict(), model_loc)
+        torch.save(self.agent.state_dict(), model_loc)
 
     def load_model(self, modelname, model_dir="models/"):
         filename = model_dir + modelname + '.pt'
         if os.path.exists(filename):
-            self.model.load_state_dict(torch.load(filename))
+            self.agent.load_state_dict(torch.load(filename))
             print("loaded:", filename)
         else:
             print(filename, " does not exist")
@@ -257,29 +257,22 @@ class SyncMultiEnvTrainer:
     def load(
         self,
         Class,
-        model,
+        agent,
         model_checkpoint,
         envs,
         val_envs,
         filename,
-        log_scalars=True,
-        allow_gpu_growth=True,
         continue_train=True,
     ):
-        with open(filename, 'r') as file:
+        with open(filename) as file:
             attrs = json.loads(file.read())
         s = attrs.pop('s')
         t = attrs.pop('t')
-        attrs.pop('current_time')
-        print(attrs)
-        trainer = Class(
-            envs=envs,
-            model=model,
-            val_envs=val_envs,
-            log_scalars=log_scalars,
-            gpu_growth=allow_gpu_growth,
-            **attrs,
-        )
+        # Strip derived/runtime fields that aren't part of TrainerConfig.
+        for key in ('train_log_dir', 'current_time'):
+            attrs.pop(key, None)
+        config = TrainerConfig(**attrs)
+        trainer = Class(envs=envs, agent=agent, val_envs=val_envs, config=config)
         if continue_train:
             trainer.s = s
             trainer.t = t
@@ -290,7 +283,7 @@ class SyncMultiEnvTrainer:
         """Hook called every ``update_target_freq`` steps. No-op by default.
 
         Off-policy agents (e.g. DDQN) override this to copy weights from
-        ``self.model`` to a target network. Pure on-policy agents leave
+        ``self.agent`` to a target network. Pure on-policy agents leave
         ``update_target_freq=0`` and never call it.
         """
         raise NotImplementedError(f'{type(self).__name__} does not implement update_target')

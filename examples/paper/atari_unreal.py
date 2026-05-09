@@ -37,7 +37,7 @@ def main(env_id: str = "MontezumaRevengeDeterministic-v4") -> None:
     input_shape = train_envs.envs[0].reset()[0].shape
     action_size = train_envs.envs[0].action_space.n
 
-    model = UnrealA2C2(
+    agent = UnrealA2C2(
         NatureCNN,
         input_shape=input_shape,
         action_size=action_size,
@@ -58,7 +58,7 @@ def main(env_id: str = "MontezumaRevengeDeterministic-v4") -> None:
 
     trainer = UnrealTrainer(
         envs=train_envs,
-        model=model,
+        agent=agent,
         val_envs=val_envs,
         config=UnrealTrainerConfig(
             total_steps=50_000_000,

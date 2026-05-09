@@ -44,7 +44,7 @@ def main(env_id: str = "MontezumaRevengeDeterministic-v4") -> None:
     input_shape = train_envs.envs[0].reset()[0].shape
     action_size = train_envs.envs[0].action_space.n
 
-    model = RND(
+    agent = RND(
         policy_model=NatureCNN,
         target_model=PredictorCNN,
         input_size=input_shape,
@@ -64,7 +64,7 @@ def main(env_id: str = "MontezumaRevengeDeterministic-v4") -> None:
 
     trainer = RNDTrainer(
         envs=train_envs,
-        model=model,
+        agent=agent,
         val_envs=val_envs,
         config=RNDTrainerConfig(
             total_steps=TOTAL_STEPS,

@@ -30,7 +30,7 @@ def main(env_id: str = "CartPole-v1") -> None:
     input_size = train_envs.envs[0].observation_space.shape
     action_size = train_envs.envs[0].action_space.n
 
-    model = ActorCritic(
+    agent = ActorCritic(
         MLP,
         input_size=input_size,
         action_size=action_size,
@@ -48,7 +48,7 @@ def main(env_id: str = "CartPole-v1") -> None:
 
     trainer = A2CTrainer(
         envs=train_envs,
-        model=model,
+        agent=agent,
         val_envs=val_envs,
         config=TrainerConfig(
             total_steps=TOTAL_STEPS,

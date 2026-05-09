@@ -55,7 +55,7 @@ def main(env_id: str = "SpaceInvadersDeterministic-v4") -> None:
         for _ in range(4)
     ]
 
-    model = PPO(
+    agent = PPO(
         UniverseCNN,
         input_shape=input_shape,
         action_size=action_size,
@@ -72,7 +72,7 @@ def main(env_id: str = "SpaceInvadersDeterministic-v4") -> None:
 
     trainer = PPOTrainer(
         envs=train_envs,
-        model=model,
+        agent=agent,
         val_envs=val_envs,
         config=PPOTrainerConfig(
             total_steps=int(1e7),

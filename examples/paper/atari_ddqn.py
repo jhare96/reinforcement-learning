@@ -43,15 +43,15 @@ def main(env_id: str = "SpaceInvadersDeterministic-v4") -> None:
         grad_clip=0.5,
         device=device,
     )
-    model = DQN(NatureCNN, input_shape, action_size, config=model_cfg, optim=torch.optim.Adam)
-    target_model = DQN(
+    agent = DQN(NatureCNN, input_shape, action_size, config=model_cfg, optim=torch.optim.Adam)
+    target_agent = DQN(
         NatureCNN, input_shape, action_size, config=model_cfg, optim=torch.optim.Adam
     )
 
     trainer = SyncDDQN(
         envs=train_envs,
-        model=model,
-        target_model=target_model,
+        agent=agent,
+        target_agent=target_agent,
         val_envs=val_envs,
         action_size=action_size,
         config=DDQNTrainerConfig(

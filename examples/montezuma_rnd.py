@@ -34,7 +34,7 @@ def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     probe = AtariEnv(gym.make(env_id), k=4, episodic=False, reset=False, clip_reward=False)
-    input_shape = probe.reset().shape  # (4, 84, 84) by default
+    input_shape = probe.reset()[0].shape  # (4, 84, 84) by default
     action_size = probe.action_space.n
     probe.close()
 
@@ -61,7 +61,7 @@ def main() -> None:
         auto_reset=True,
     )
 
-    model = RND(
+    agent = RND(
         policy_model=UniverseCNN,
         target_model=PredictorCNN,
         input_size=input_shape,
@@ -80,7 +80,7 @@ def main() -> None:
 
     trainer = RNDTrainer(
         envs=train_envs,
-        model=model,
+        agent=agent,
         val_envs=val_envs,
         config=RNDTrainerConfig(
             total_steps=int(1e7),

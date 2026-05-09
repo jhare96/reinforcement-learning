@@ -23,11 +23,11 @@ class PPOTrainer(SyncMultiEnvTrainer):
     def __init__(
         self,
         envs,
-        model: PPO,
+        agent: PPO,
         val_envs,
         config: PPOTrainerConfig,
     ):
-        super().__init__(envs, model, val_envs, config=config)
+        super().__init__(envs, agent, val_envs, config=config)
         self.num_epochs = config.num_epochs
         self.num_minibatches = config.num_minibatches
 
@@ -61,7 +61,7 @@ class PPOTrainer(SyncMultiEnvTrainer):
                         old_policies[batch_idxs],
                     )
 
-                    loss_value += self.model.backprop(
+                    loss_value += self.agent.backprop(
                         mb_states.copy(),
                         mb_R.copy(),
                         mb_Adv.copy(),
@@ -92,13 +92,13 @@ class PPOTrainer(SyncMultiEnvTrainer):
                 print('saved model')
 
     def get_action(self, states):
-        policies, values = self.model.evaluate(states)
+        policies, values = self.agent.evaluate(states)
         return int(fastsample(policies).item())
 
     def rollout(self):
         rollout = []
         for _t in range(self.nsteps):
-            policies, values = self.model.evaluate(self.states)
+            policies, values = self.agent.evaluate(self.states)
             actions = fastsample(policies)
             next_states, rewards, dones, infos = self.env.step(actions)
             rollout.append((self.states, actions, rewards, values, policies, dones))
@@ -108,5 +108,5 @@ class PPOTrainer(SyncMultiEnvTrainer):
         (
             policy,
             last_values,
-        ) = self.model.evaluate(next_states)
+        ) = self.agent.evaluate(next_states)
         return states, actions, rewards, values, last_values, policies, dones

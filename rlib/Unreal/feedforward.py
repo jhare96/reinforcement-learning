@@ -225,14 +225,14 @@ class UnrealTrainer(SyncMultiEnvTrainer):
     def __init__(
         self,
         envs,
-        model: UnrealA2C2,
+        agent: UnrealA2C2,
         val_envs,
         config: UnrealTrainerConfig,
     ):
-        super().__init__(envs, model, val_envs, config=config)
+        super().__init__(envs, agent, val_envs, config=config)
 
         self.replay = deque([], maxlen=config.replay_length)  # replay length per actor
-        self.action_size = self.model.action_size
+        self.action_size = self.agent.action_size
         self.normalise_obs = config.normalise_obs
 
         if self.normalise_obs:
@@ -313,7 +313,7 @@ class UnrealTrainer(SyncMultiEnvTrainer):
         # print('replay_values shape', replay_values.shape)
 
         next_state = self.replay[sample_start + self.nsteps][0][workers]  # get state
-        _, replay_last_values = self.model.evaluate(next_state)
+        _, replay_last_values = self.agent.evaluate(next_state)
         replay_R = (
             GAE(
                 replay_rewards,
@@ -326,9 +326,9 @@ class UnrealTrainer(SyncMultiEnvTrainer):
             + replay_values
         )
 
-        if self.model.pixel_control:
+        if self.agent.pixel_control:
             prev_states = self.replay[sample_start - 1][0][workers]
-            Qaux_value = self.model.get_pixel_control(next_state)
+            Qaux_value = self.agent.get_pixel_control(next_state)
             pixel_rewards = self.pixel_rewards(prev_states, replay_states)
             Qaux_target = self.auxiliary_target(
                 pixel_rewards, np.max(Qaux_value, axis=1), replay_dones
@@ -400,7 +400,7 @@ class UnrealTrainer(SyncMultiEnvTrainer):
                 self.sample_replay()
             )
 
-            loss_value = self.model.backprop(
+            loss_value = self.agent.backprop(
                 states,
                 R,
                 actions,
@@ -434,8 +434,8 @@ class UnrealTrainer(SyncMultiEnvTrainer):
     ):
         rollout = []
         for _t in range(self.nsteps):
-            policies, values = self.model.evaluate(self.states)
-            # Qaux = self.model.get_pixel_control(self.states, self.prev_hidden, self.prev_actions_rewards[np.newaxis])
+            policies, values = self.agent.evaluate(self.states)
+            # Qaux = self.agent.get_pixel_control(self.states, self.prev_hidden, self.prev_actions_rewards[np.newaxis])
             actions = fastsample(policies)
             next_states, rewards, dones, infos = self.env.step(actions)
 
@@ -446,10 +446,10 @@ class UnrealTrainer(SyncMultiEnvTrainer):
             self.states = next_states
 
         states, actions, rewards, values, dones = stack_many(*zip(*rollout))
-        _, last_values = self.model.evaluate(next_states)
+        _, last_values = self.agent.evaluate(next_states)
         return states, actions, rewards, values, dones, last_values
 
     def get_action(self, state):
-        policy, value = self.model.evaluate(state)
+        policy, value = self.agent.evaluate(state)
         action = int(np.random.choice(policy.shape[1], p=policy[0]))
         return action

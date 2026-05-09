@@ -20,7 +20,7 @@ class VINTrainer:
 
     def __init__(
         self,
-        model: VINCNN,
+        agent: VINCNN,
         envs,
         val_envs,
         epsilon=0.1,
@@ -41,12 +41,12 @@ class VINTrainer:
         num_val_episodes=50,
         log_scalars=True,
     ):
-        self.model = model
+        self.agent = agent
         self.env = envs
         self.num_envs = len(envs)
         self.val_envs = val_envs
         self.total_steps = total_steps
-        self.action_size = self.model.action_size
+        self.action_size = self.agent.action_size
         self.epsilon = epsilon
         self.epsilon_test = epsilon_test
         self.states = self.env.reset()
@@ -104,7 +104,7 @@ class VINTrainer:
                 fold_batch(R),
             )
             # print('locs', locs.shape)
-            loss_value = self.model.backprop(states, locs, R, actions)
+            loss_value = self.agent.backprop(states, locs, R, actions)
 
             if self.validate_freq > 0 and t % (self.validate_freq // batch_size) == 0:
                 self.validation_summary(t, loss_value, start, False)
@@ -123,7 +123,7 @@ class VINTrainer:
             self.t += 1
 
     def eval_state(self, state, loc):
-        return self.model.evaluate(state, loc)
+        return self.agent.evaluate(state, loc)
 
     def rollout(self):
         rollout = []

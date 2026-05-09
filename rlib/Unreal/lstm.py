@@ -375,15 +375,15 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
     def __init__(
         self,
         envs,
-        model: UnrealA2C,
+        agent: UnrealA2C,
         val_envs,
         config: TrainerConfig,
     ):
-        super().__init__(envs, model, val_envs, config=config)
+        super().__init__(envs, agent, val_envs, config=config)
 
         self.replay = deque([], maxlen=2000)
-        self.action_size = self.model.action_size
-        self.prev_hidden = self.model.get_initial_hidden(len(self.env))
+        self.action_size = self.agent.action_size
+        self.prev_hidden = self.agent.get_initial_hidden(len(self.env))
         zeros = np.zeros((len(self.env)), dtype=np.int32)
         self.prev_actions_rewards = concat_action_reward(
             zeros, zeros, self.action_size + 1
@@ -441,13 +441,13 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
         replay_dones = np.stack([replay_sample[i][5][worker] for i in range(len(replay_sample))])
 
         next_state = self.replay[sample_start + self.nsteps][0][worker][None]  # get state
-        _, replay_values, *_ = self.model.evaluate(
+        _, replay_values, *_ = self.agent.evaluate(
             next_state[None], replay_actsrews[-1][None], replay_hiddens[-1].reshape(2, 1, 1, -1)
         )
         replay_R = nstep_return(replay_rewards, replay_values, replay_dones)
 
         prev_states = self.replay[sample_start - 1][0][worker]
-        Qaux_value = self.model.get_pixel_control(
+        Qaux_value = self.agent.get_pixel_control(
             next_state[None], replay_actsrews[-1][None], replay_hiddens[-1].reshape(2, 1, 1, -1)
         )[0]
         Qaux_target = self.auxiliary_target(
@@ -519,7 +519,7 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
                 replay_dones,
             ) = self.sample_replay()
 
-            loss_value = self.model.backprop(
+            loss_value = self.agent.backprop(
                 states,
                 R,
                 actions,
@@ -560,10 +560,10 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
         rollout = []
         first_hidden = self.prev_hidden
         for _t in range(self.nsteps):
-            policies, values, hidden = self.model.evaluate(
+            policies, values, hidden = self.agent.evaluate(
                 self.states[None], self.prev_actions_rewards, self.prev_hidden
             )
-            # Qaux = self.model.get_pixel_control(self.states, self.prev_hidden, self.prev_actions_rewards[None])
+            # Qaux = self.agent.get_pixel_control(self.states, self.prev_hidden, self.prev_actions_rewards[None])
             actions = fastsample(policies)
             next_states, rewards, dones, infos = self.env.step(actions)
 
@@ -572,19 +572,19 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
                 (self.states, actions, rewards, self.prev_hidden, self.prev_actions_rewards, dones)
             )  # add to replay memory
             self.states = next_states
-            self.prev_hidden = self.model.mask_hidden(
+            self.prev_hidden = self.agent.mask_hidden(
                 hidden, dones
             )  # reset hidden state at end of episode
             self.prev_actions_rewards = concat_action_reward(actions, rewards, self.action_size + 1)
 
         states, actions, rewards, prev_actions_rewards, dones, infos = stack_many(*zip(*rollout))
-        _, last_values, _ = self.model.evaluate(
+        _, last_values, _ = self.agent.evaluate(
             self.states[None], self.prev_actions_rewards, self.prev_hidden
         )
         return states, actions, rewards, first_hidden, prev_actions_rewards, dones, last_values
 
     def get_action(self, state):
-        policy, value = self.model.forward(state)
+        policy, value = self.agent.forward(state)
         action = int(np.random.choice(policy.shape[1], p=policy[0]))
         # action = np.argmax(policy)
         return action
@@ -593,20 +593,20 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
         for _episode in range(num_ep):
             state = env.reset()
             episode_score = []
-            hidden = self.model.get_initial_hidden(1)
+            hidden = self.agent.get_initial_hidden(1)
             prev_actrew = concat_action_reward(
                 np.zeros((1), dtype=np.int32),
                 np.zeros((1), dtype=np.int32),
-                self.model.action_size + 1,
+                self.agent.action_size + 1,
             )
             for t in range(max_steps):
-                policy, value, hidden = self.model.evaluate(state[None, None], prev_actrew, hidden)
+                policy, value, hidden = self.agent.evaluate(state[None, None], prev_actrew, hidden)
                 # print('policy', policy, 'value', value)
                 action = np.random.choice(policy.shape[1], p=policy[0])
                 next_state, reward, done, info = env.step(action)
                 state = next_state
                 prev_actrew = concat_action_reward(
-                    np.array([action]), np.array([reward]), self.model.action_size + 1
+                    np.array([action]), np.array([reward]), self.agent.action_size + 1
                 )
                 episode_score.append(reward)
 
@@ -634,9 +634,9 @@ class UnrealLSTMTrainer(SyncMultiEnvTrainer):
             prev_actrew = concat_action_reward(
                 zeros, zeros, self.action_size + 1
             )  # start with action 0 and reward 0
-            prev_hidden = self.model.get_initial_hidden(len(self.val_envs))
+            prev_hidden = self.agent.get_initial_hidden(len(self.val_envs))
             for t in range(self.nsteps):
-                policies, values, hidden = self.model.evaluate(
+                policies, values, hidden = self.agent.evaluate(
                     states[None], prev_actrew, prev_hidden
                 )
                 actions = fastsample(policies)

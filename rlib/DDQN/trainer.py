@@ -23,21 +23,21 @@ class SyncDDQN(SyncMultiEnvTrainer):
     def __init__(
         self,
         envs,
-        model: DQN,
-        target_model: DQN,
+        agent: DQN,
+        target_agent: DQN,
         val_envs,
         action_size,
         config: DDQNTrainerConfig,
     ):
-        super().__init__(envs=envs, model=model, val_envs=val_envs, config=config)
+        super().__init__(envs=envs, agent=agent, val_envs=val_envs, config=config)
 
-        self.target_model = self.TargetQ = target_model
-        self.Q = self.model  # more readable alias
+        self.target_agent = self.TargetQ = target_agent
+        self.Q = self.agent  # more readable alias
         self.epsilon = np.array([config.epsilon_start], dtype=np.float64)
         self.epsilon_final = config.epsilon_final
         self.epsilon_steps = config.epsilon_steps
         self.schedule = self.linear_schedule(
-            self.epsilon, config.epsilon_final, config.epsilon_steps // self.num_envs
+            self.epsilon, config.epsilon_final, int(config.epsilon_steps // self.num_envs)
         )
         self.epsilon_test = np.array(config.epsilon_test, dtype=np.float64)
         self.action_size = action_size
@@ -68,11 +68,11 @@ class SyncDDQN(SyncMultiEnvTrainer):
         if np.random.uniform() < self.epsilon_test:
             action = np.random.randint(self.action_size)
         else:
-            action = int(np.argmax(self.model.evaluate(state)))
+            action = int(np.argmax(self.agent.evaluate(state)))
         return action
 
     def update_target(self):
-        self.target_model.load_state_dict(self.model.state_dict())
+        self.target_agent.load_state_dict(self.agent.state_dict())
 
     def local_attr(self, attr):
         attr['update_target_freq'] = self.target_freq

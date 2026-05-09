@@ -32,7 +32,7 @@ def main(env_id: str = "MountainCar-v0") -> None:
     input_size = train_envs.envs[0].observation_space.shape
     action_size = train_envs.envs[0].action_space.n
 
-    model = RND(
+    agent = RND(
         policy_model=MLP,
         target_model=PredictorMLP,
         input_size=input_size,
@@ -53,7 +53,7 @@ def main(env_id: str = "MountainCar-v0") -> None:
 
     trainer = RNDTrainer(
         envs=train_envs,
-        model=model,
+        agent=agent,
         val_envs=val_envs,
         config=RNDTrainerConfig(
             total_steps=TOTAL_STEPS,

@@ -40,7 +40,7 @@ def main(env_id: str = "SpaceInvadersDeterministic-v4") -> None:
     input_shape = train_envs.envs[0].reset()[0].shape
     action_size = train_envs.envs[0].action_space.n
 
-    model = PPO(
+    agent = PPO(
         NatureCNN,
         input_shape=input_shape,
         action_size=action_size,
@@ -58,7 +58,7 @@ def main(env_id: str = "SpaceInvadersDeterministic-v4") -> None:
 
     trainer = PPOTrainer(
         envs=train_envs,
-        model=model,
+        agent=agent,
         val_envs=val_envs,
         config=PPOTrainerConfig(
             total_steps=TOTAL_STEPS,

@@ -27,11 +27,11 @@ class CuriosityTrainer(SyncMultiEnvTrainer):
     def __init__(
         self,
         envs,
-        model: Curiosity,
+        agent: Curiosity,
         val_envs,
         config: TrainerConfig,
     ):
-        super().__init__(envs, model, val_envs, config=config)
+        super().__init__(envs, agent, val_envs, config=config)
         self.state_obs = RollingObs()
         self.state_mean = None
         self.state_std = None
@@ -40,7 +40,7 @@ class CuriosityTrainer(SyncMultiEnvTrainer):
     def init_state_obs(self, num_steps):
         states = 0
         for _i in range(num_steps):
-            rand_actions = np.random.randint(0, self.model.action_size, size=self.num_envs)
+            rand_actions = np.random.randint(0, self.agent.action_size, size=self.num_envs)
             next_states, rewards, dones, infos = self.env.step(rand_actions)
             states += next_states
         return states / num_steps
@@ -58,7 +58,7 @@ class CuriosityTrainer(SyncMultiEnvTrainer):
         batch_size = self.num_envs * self.nsteps
         for t in range(1, num_updates + 1):
             states, next_states, actions, rewards, dones, values = self.rollout()
-            _, last_values = self.model.evaluate(next_states[-1])
+            _, last_values = self.agent.evaluate(next_states[-1])
 
             R = nstep_return(rewards, last_values, dones)
             Adv = R - values
@@ -75,7 +75,7 @@ class CuriosityTrainer(SyncMultiEnvTrainer):
             )
             mean, std = self.state_mean, self.state_std
 
-            loss_value = self.model.backprop(states, next_states, R, Adv, actions, mean, std)
+            loss_value = self.agent.backprop(states, next_states, R, Adv, actions, mean, std)
 
             # self.state_mean, self.state_std = self.state_obs.update(states)
 
@@ -96,7 +96,7 @@ class CuriosityTrainer(SyncMultiEnvTrainer):
                 print('saved model')
 
     def get_action(self, state):
-        policy, value = self.model.evaluate(state)
+        policy, value = self.agent.evaluate(state)
         action = int(np.random.choice(policy.shape[1], p=policy[0]))
         return action
 
@@ -105,12 +105,12 @@ class CuriosityTrainer(SyncMultiEnvTrainer):
     ):
         rollout = []
         for _t in range(self.nsteps):
-            policies, values = self.model.evaluate(self.states)
+            policies, values = self.agent.evaluate(self.states)
             actions = fastsample(policies)
             next_states, extr_rewards, dones, infos = self.env.step(actions)
 
             mean, std = self.state_mean[None], self.state_std[None]
-            intr_rewards = self.model.intrinsic_reward(
+            intr_rewards = self.agent.intrinsic_reward(
                 (self.states - mean) / std, actions, (next_states - mean) / std
             )
             rewards = extr_rewards + intr_rewards

@@ -271,6 +271,6 @@ class TestAutoLoggedHyperparameters:
         # Trainer-derived field:
         assert "num_workers = 2" in content
         # Model config fields (prefixed):
-        assert "model.lr = 0.001" in content
-        assert "model.entropy_coeff = 0.01" in content
-        assert "model.value_coeff = 0.5" in content
+        assert "agent.lr = 0.001" in content
+        assert "agent.entropy_coeff = 0.01" in content
+        assert "agent.value_coeff = 0.5" in content
