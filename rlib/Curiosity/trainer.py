@@ -96,8 +96,12 @@ class CuriosityTrainer(SyncMultiEnvTrainer):
 
     def get_action(self, state):
         policy, value = self.agent.evaluate(state)
-        action = int(np.random.choice(policy.shape[1], p=policy[0]))
-        return action
+        actions = np.array(
+            [np.random.choice(policy.shape[1], p=policy[i]) for i in range(policy.shape[0])]
+        )
+        if state.shape[0] == 1:
+            return int(actions[0])
+        return actions
 
     def rollout(
         self,

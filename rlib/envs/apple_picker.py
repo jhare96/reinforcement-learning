@@ -1,5 +1,6 @@
 import copy
 import random
+from contextlib import suppress
 from pathlib import Path
 
 import gymnasium as gym
@@ -17,11 +18,8 @@ def draw_circle(grid, x, y, r):
             deltaY = y - j
             distance = np.sqrt(deltaX**2 + deltaY**2)
             color = 1 if distance <= r**2 else 0  # np.clip(r - distance, 0, 1)
-            try:
+            with suppress(IndexError):
                 grid[i, j, 2] = color
-                print('i,j', (i, j))
-            except IndexError:
-                pass
     return grid
 
 
@@ -52,7 +50,7 @@ class ApplePicker(gym.Env):
         while objects < num_objects:
             x, y = self.rand_loc()
             if x in self.item_locs:
-                if y in self.item_locs:
+                if y in self.item_locs[x]:
                     pass
                 else:
                     self.item_locs[x][y] = 1

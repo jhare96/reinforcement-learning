@@ -67,11 +67,17 @@ class SyncDDQN(SyncMultiEnvTrainer):
             return self._epsilon
 
     def get_action(self, state):
-        if np.random.uniform() < self.epsilon_test:
-            action = np.random.randint(self.action_size)
-        else:
-            action = int(np.argmax(self.agent.evaluate(state)))
-        return action
+        q_values = self.agent.evaluate(state)
+        if state.shape[0] == 1:
+            if np.random.uniform() < self.epsilon_test:
+                return int(np.random.randint(self.action_size))
+            return int(np.argmax(q_values))
+        actions = np.argmax(q_values, axis=-1)
+        rand_mask = np.random.uniform(size=actions.shape) < self.epsilon_test
+        actions = np.where(
+            rand_mask, np.random.randint(self.action_size, size=actions.shape), actions
+        )
+        return actions
 
     def update_target(self):
         self.target_agent.load_state_dict(self.agent.state_dict())

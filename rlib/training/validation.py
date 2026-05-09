@@ -137,9 +137,6 @@ class AsyncValidator:
                     with self._lock:
                         self._scores.append(episode_reward)
                     break
-        if render:
-            with self._lock:
-                env.close()
 
 
 class SyncValidator:

@@ -96,7 +96,10 @@ class PPOTrainer(SyncMultiEnvTrainer):
 
     def get_action(self, states):
         policies, values = self.agent.evaluate(states)
-        return int(fastsample(policies).item())
+        actions = fastsample(policies)
+        if states.shape[0] == 1:
+            return int(actions.item())
+        return actions
 
     def rollout(self):
         rollout = []

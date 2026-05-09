@@ -36,7 +36,7 @@ def main(env_id: str = "SpaceInvadersDeterministic-v4") -> None:
 
     # Probe a single env to discover input shape and action space.
     probe = AtariEnv(gym.make(env_id), k=4, episodic=False, reset=False, clip_reward=False)
-    input_shape = probe.reset().shape
+    input_shape = probe.reset()[0].shape
     action_size = probe.action_space.n
     probe.close()
 

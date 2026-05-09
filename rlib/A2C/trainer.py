@@ -25,7 +25,10 @@ class A2CTrainer(SyncMultiEnvTrainer):
 
     def get_action(self, state):
         policy, value = self.agent.evaluate(state)
-        return int(fastsample(policy).item())
+        actions = fastsample(policy)
+        if state.shape[0] == 1:
+            return int(actions.item())
+        return actions
 
     def rollout(
         self,
