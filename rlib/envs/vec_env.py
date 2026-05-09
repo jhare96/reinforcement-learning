@@ -210,16 +210,16 @@ class ChunkEnv(RLVecEnv):
     def step(
         self, actions: Iterable[Any], blocking: bool = True
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[dict, ...]] | Callable[[], list[Any]]:
-        results = self._send_step('step', actions)
+        recv = self._send_step('step', actions)
         if blocking:
-            results = list(chain.from_iterable(results()))
+            results = list(chain.from_iterable(recv()))
             obs, rewards, dones, infos = zip(*results)
             return np.stack(obs), np.stack(rewards), np.stack(dones), infos
-        return results
+        return recv
 
     def reset(self) -> np.ndarray:
-        results = self._send_step('reset', np.zeros(self.num_chunks * self.num_workers))
-        results = list(chain.from_iterable(results()))
+        recv = self._send_step('reset', np.zeros(self.num_chunks * self.num_workers))
+        results = list(chain.from_iterable(recv()))
         return np.stack(results)
 
     def close(self):
@@ -302,12 +302,12 @@ class DummyBatchEnv(RLVecEnv):
             done = RLVecEnv.merge_done(terminated, truncated)
             info = RLVecEnv.merge_info(info, terminated, truncated)
             results.append((obs, r, done, info))
-        obs, rewards, done, info = zip(*results)
+        obs_b, rewards_b, done_b, infos_b = zip(*results)
         return (
-            np.stack(obs).copy(),
-            np.stack(rewards).copy(),
-            np.stack(done).copy(),
-            info,
+            np.stack(obs_b).copy(),
+            np.stack(rewards_b).copy(),
+            np.stack(done_b).copy(),
+            infos_b,
         )
 
     def reset(self) -> np.ndarray:

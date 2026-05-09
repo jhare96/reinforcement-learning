@@ -34,9 +34,9 @@ class ApplePicker(gym.Env):
             low=0, high=255, shape=self.grid.shape, dtype=np.uint8
         )
         self.state = self.grid.copy()
-        self.item_locs = {}
+        self.item_locs: dict[int, dict[int, int]] = {}
         self.nobjects = num_objects
-        self.agent_loc = [0, 0]
+        self.agent_loc: tuple[int, int] | list[int] = [0, 0]
         self.reset()
         self.def_reward = default_reward
 
@@ -85,7 +85,7 @@ class ApplePicker(gym.Env):
             pass
 
         self.update_state()
-        info = {}
+        info: dict = {}
         terminated = len(self.item_locs) == 0
         truncated = False
         return self.state, reward, terminated, truncated, info

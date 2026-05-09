@@ -299,7 +299,7 @@ class ToTorchEnv(RLEnv):
         self.env = env
         self.device = device
 
-    def step(
+    def step(  # type: ignore[override]
         self, action: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict]:
         obs, reward, terminated, truncated, info = self.env.step(action.cpu().numpy())
