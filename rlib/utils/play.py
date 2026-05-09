@@ -6,7 +6,6 @@ import pygame
 from pygame.locals import VIDEORESIZE
 
 from rlib.envs import make as make_env
-from rlib.envs import wrap as wrap_env
 from rlib.envs.base import RLVecEnv
 
 
@@ -72,7 +71,7 @@ def play(
             }
         If None, default key_to_action mapping for that env is used, if provided.
     """
-    rl_env = wrap_env(env)
+    rl_env = env
     rl_env.reset()
     rendered = env.render(mode='rgb_array')
 

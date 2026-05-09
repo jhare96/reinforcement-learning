@@ -9,12 +9,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from rlib.envs import RLEnv, wrap
 from rlib.envs.vec_env import DummyBatchEnv
 
 
-def _identity_constructor(env: object) -> RLEnv:
-    return wrap(env)
+def _identity_constructor(env: object) -> object:
+    return env
 
 
 def test_dummy_batch_env_reset_stacks_observations() -> None:

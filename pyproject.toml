@@ -168,5 +168,4 @@ addopts = [
 ]
 filterwarnings = [
     "ignore::DeprecationWarning:numpy",
-    "ignore::DeprecationWarning:gym",
 ]

@@ -28,7 +28,7 @@ from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
-from rlib.envs import RLVecEnv, wrap
+from rlib.envs import RLVecEnv
 from rlib.envs.vec_env import BatchEnv, DummyBatchEnv
 
 __all__ = ["AsyncValidator", "SyncValidator", "Validator", "make_validator"]
@@ -118,7 +118,7 @@ class AsyncValidator:
         max_steps: int,
         render: bool,
     ) -> None:
-        rl_env = wrap(env)
+        rl_env = env
         for _episode in range(num_episodes):
             state, _info = rl_env.reset()
             episode_reward = 0.0

@@ -24,11 +24,10 @@ from collections.abc import Callable, Iterable, Iterator
 from itertools import chain
 from typing import Any
 
+import gymnasium as gym
 import numpy as np
 
 from rlib.envs.base import RLEnv, RLVecEnv
-from rlib.envs.registry import make as _make_env
-from rlib.envs.registry import wrap as _wrap_env
 
 # ---------------------------------------------------------------------------
 # Single-env subprocess wrapper
@@ -88,7 +87,7 @@ class Worker(mp.Process):
     def __init__(self, worker_id: int, env: RLEnv, connection):
         np.random.seed()
         mp.Process.__init__(self)
-        self.env = _wrap_env(env)
+        self.env = env
         self.worker_id = worker_id
         self.connection = connection
 
@@ -140,7 +139,7 @@ class BatchEnv(RLVecEnv):
         make_args = make_args or {}
         self.envs: list[Env] = []
         for _ in range(num_envs):
-            inner = _make_env(env_id, **make_args)
+            inner = gym.make(env_id, **make_args)
             self.envs.append(Env(env_constructor(inner, **env_args)))
         self.blocking = blocking
 
@@ -238,7 +237,7 @@ class ChunkWorker(mp.Process):
         render: bool = False,
     ):
         mp.Process.__init__(self)
-        self.envs = [_make_env(env_id) for _ in range(num_chunks)]
+        self.envs = [gym.make(env_id) for _ in range(num_chunks)]
         self.connection = connection
         self.render = render
 
@@ -285,7 +284,7 @@ class DummyBatchEnv(RLVecEnv):
     ):
         make_args = make_args or {}
         self.envs: list[RLEnv] = [
-            env_constructor(_make_env(env_id, **make_args), **env_args) for _ in range(num_envs)
+            env_constructor(gym.make(env_id, **make_args), **env_args) for _ in range(num_envs)
         ]
 
     def __len__(self) -> int:

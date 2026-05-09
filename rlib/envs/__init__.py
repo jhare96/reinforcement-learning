@@ -1,36 +1,36 @@
-"""Generic, backend-agnostic environment abstraction for rlib.
+"""rlib's environment subpackage.
 
-This subpackage replaces the previous ``rlib.utils.gym_compat`` shim
-(now removed).
-It exposes a single canonical environment contract — the modern
-5-tuple Gymnasium API — together with one thin adapter per supported
-backend.  See :mod:`rlib.envs.base` for the design rationale.
+Targets the modern Gymnasium 5-tuple API directly:
 
-Public surface:
+* :class:`RLEnv` — abstract base class for rlib wrappers (provides
+  ``__getattr__`` delegation, ``unwrapped``, context-manager support).
+* :class:`RLVecEnv` — abstract base for vectorised env runners
+  (``BatchEnv`` and ``DummyBatchEnv``).
+* :func:`make` — re-export of :func:`gymnasium.make`.
 
-* :class:`RLEnv` — :class:`typing.Protocol` for type annotations.
-* :class:`RLEnv` — abstract base that adapters and wrappers extend.
-* :class:`RLVecEnv` — abstract base for vectorised env runners.
-* :func:`make` — construct or wrap an env.
-* :func:`wrap` — wrap an already-constructed env.
-* :func:`register_backend` — teach rlib about a new env type.
-
-Concrete vec-env runners and the agent-suite wrappers live in
-:mod:`rlib.envs.vec_env` and :mod:`rlib.envs.wrappers` respectively.
-The most-used names are re-exported here for convenience.
+Built-in custom envs (``ApplePicker-v0``, ``ApplePickerDeterministic-v0``)
+are registered with Gymnasium at import time so ``gymnasium.make("ApplePicker-v0")``
+works out of the box.
 """
 
+from gymnasium import make
+from gymnasium.envs.registration import register
+
 from rlib.envs.base import RLEnv, RLVecEnv
-from rlib.envs.registry import make, register_backend, wrap
 from rlib.envs.vec_env import BatchEnv, DummyBatchEnv
 
-__all__ = [
-    "BatchEnv",
-    "DummyBatchEnv",
-    "RLEnv",
-    "RLEnv",
-    "RLVecEnv",
-    "make",
-    "register_backend",
-    "wrap",
-]
+__all__ = ["BatchEnv", "DummyBatchEnv", "RLEnv", "RLVecEnv", "make"]
+
+
+# ---------------------------------------------------------------------------
+# Built-in env registration
+# ---------------------------------------------------------------------------
+
+register(
+    id="ApplePicker-v0",
+    entry_point="rlib.envs.apple_picker:ApplePicker",
+)
+register(
+    id="ApplePickerDeterministic-v0",
+    entry_point="rlib.envs.apple_picker:ApplePickerDeterministic",
+)

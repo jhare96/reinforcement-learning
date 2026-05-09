@@ -2,10 +2,8 @@ import copy
 import random
 from pathlib import Path
 
-import gym
-import matplotlib.pyplot as plt
+import gymnasium as gym
 import numpy as np
-from scipy.signal import convolve2d
 
 
 def draw_circle(grid, x, y, r):
@@ -29,9 +27,12 @@ def draw_circle(grid, x, y, r):
 
 class ApplePicker(gym.Env):
     def __init__(self, num_objects=20, default_reward=0):
-        super()
+        super().__init__()
         self.action_space = gym.spaces.Discrete(4)
         self.grid = (np.load(Path(__file__).parent / 'grid.npy') * 255).astype(np.uint8)
+        self.observation_space = gym.spaces.Box(
+            low=0, high=255, shape=self.grid.shape, dtype=np.uint8
+        )
         self.state = self.grid.copy()
         self.item_locs = {}
         self.nobjects = num_objects
@@ -85,8 +86,9 @@ class ApplePicker(gym.Env):
 
         self.update_state()
         info = {}
-        done = len(self.item_locs) == 0
-        return self.state, reward, done, info
+        terminated = len(self.item_locs) == 0
+        truncated = False
+        return self.state, reward, terminated, truncated, info
 
     def update_state(self):
         self.state = self.grid.copy()
@@ -96,19 +98,23 @@ class ApplePicker(gym.Env):
             for col in list(cols.keys()):
                 self.state[row, col, 1] = 255
 
-    def reset(self):
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
         self.item_locs = {}
         self.agent_loc = self.rand_loc()
         self.generate_random_locs(self.nobjects)
         self.update_state()
-        return self.state
+        return self.state, {}
 
 
 class ApplePickerDeterministic(ApplePicker):
     def __init__(self, num_objects=20, default_reward=0):
-        super(ApplePicker, self)
+        gym.Env.__init__(self)
         self.action_space = gym.spaces.Discrete(4)
         self.grid = (np.load(Path(__file__).parent / 'grid.npy') * 255).astype(np.uint8)
+        self.observation_space = gym.spaces.Box(
+            low=0, high=255, shape=self.grid.shape, dtype=np.uint8
+        )
         self.state = self.grid.copy()
         self.item_locs = {}
         self.nobjects = num_objects
@@ -119,53 +125,21 @@ class ApplePickerDeterministic(ApplePicker):
         self.item_locs_master = copy.deepcopy(self.item_locs)
         self.reset()
 
-    def reset(self):
+    def reset(self, *, seed=None, options=None):
+        # Deliberately don't call super().reset() — we want a deterministic start.
         self.item_locs = copy.deepcopy(self.item_locs_master)
         self.agent_loc = self.start_loc
         self.update_state()
-        return self.state
-
-
-# peaks = np.random.randint(low=0, high=84, size=(12,2))
-# grid = np.zeros((84,84,3))
-
-# for peak in peaks:
-#     x, y = peak
-#     print(x, y)
-#     r = np.random.randint(3, high=4)
-#     print('r', r)
-#     grid = draw_circle(grid, x, y, r+.5)
-
-# #grid = convolve2d(grid, np.ones((20,20)), mode='same')
-# #grid = convolve2d(grid, np.ones((5,5)), mode='same')
-# np.save('grid', grid)
-# plt.figure()
-# plt.imshow(grid)
-# plt.colorbar()
-# plt.show()
+        return self.state, {}
 
 
 if __name__ == '__main__':
     env = ApplePicker(num_objects=100)
-    obs = env.reset()
-    plt.imshow(obs)
-    plt.colorbar()
+    obs, _info = env.reset()
     for _i in range(1000):
-        obs, reward, done, info = env.step(random.choice([0, 1, 2, 3]))
+        obs, reward, terminated, truncated, info = env.step(random.choice([0, 1, 2, 3]))
         if reward > 0:
             print('reward', reward)
-        if done:
-            break
+        if terminated or truncated:
             print('done')
-
-    print('dtype', obs.dtype)
-    s = 2
-    obs = np.stack(
-        [convolve2d(obs[:, :, i], np.ones((8, 8)), mode='same')[::s, ::s] for i in range(3)],
-        axis=-1,
-    )
-    plt.imsave('obs_convolved.png', obs / obs.max())
-    plt.figure()
-    plt.imshow(obs)
-    plt.colorbar()
-    plt.show()
+            break

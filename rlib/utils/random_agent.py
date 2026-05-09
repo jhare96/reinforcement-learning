@@ -6,7 +6,6 @@ import numpy as np
 import seaborn as sns
 
 from rlib.envs import make as make_env
-from rlib.envs import wrap as wrap_env
 from rlib.envs.base import RLVecEnv
 
 sns.set()
@@ -15,7 +14,7 @@ ep_rewards: list[float] = []
 
 
 def run_episodes(env, number_episodes: int, max_steps: int):
-    rl_env = wrap_env(env)
+    rl_env = env
     for _episode in range(number_episodes):
         _obs, _info = rl_env.reset()
         ep_score = 0.0
