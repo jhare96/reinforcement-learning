@@ -1,7 +1,21 @@
-"""Run the RND example: ``python -m rlib.RND``."""
+"""``python -m rlib.RND`` -- YAML-driven RND runner.
 
-import runpy
-from pathlib import Path
+Pass a YAML config path; use ``--set key.path=value`` to override
+individual fields. See :mod:`rlib._cli` for the YAML schema.
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-runpy.run_path(str(_REPO_ROOT / "examples" / "montezuma_rnd.py"), run_name="__main__")
+Example::
+
+    python -m rlib.RND path/to/config.yaml --set trainer.config.total_steps=1_000_000
+"""
+
+from __future__ import annotations
+
+from rlib._cli import run_from_yaml
+
+
+def main(argv: list[str] | None = None) -> None:
+    run_from_yaml(prog="python -m rlib.RND", argv=argv)
+
+
+if __name__ == "__main__":
+    main()

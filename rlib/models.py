@@ -38,6 +38,34 @@ def conv2d_outsize(height, width, kernel_size, stride, padding):
     return h_out, w_out
 
 
+class MLP(torch.nn.Module):
+    """Two-layer MLP body for low-dimensional (vector) observations.
+
+    Accepts either a 1-D shape tuple ``(in_dim,)`` or an int ``in_dim``
+    so it slots into both the ``input_size`` and ``input_shape``
+    interfaces used across the agent-model wrappers.
+    """
+
+    def __init__(
+        self,
+        input_shape,
+        hidden_size: int = 64,
+        activation: type[torch.nn.Module] = torch.nn.Tanh,
+    ) -> None:
+        super().__init__()
+        in_dim = int(input_shape[0]) if hasattr(input_shape, "__len__") else int(input_shape)
+        self.dense_size = hidden_size
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(in_dim, hidden_size),
+            activation(),
+            torch.nn.Linear(hidden_size, hidden_size),
+            activation(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+
 class DeconvUniverse(torch.nn.Module):
     def __init__(
         self,

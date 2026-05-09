@@ -1,11 +1,11 @@
-"""``python -m rlib.PPO`` -- YAML-driven PPO runner.
+"""``python -m rlib.Curiosity`` -- YAML-driven Curiosity runner.
 
 Pass a YAML config path; use ``--set key.path=value`` to override
 individual fields. See :mod:`rlib._cli` for the YAML schema.
 
 Example::
 
-    python -m rlib.PPO path/to/config.yaml --set trainer.config.total_steps=1_000_000
+    python -m rlib.Curiosity path/to/config.yaml --set trainer.config.total_steps=1_000_000
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from rlib._cli import run_from_yaml
 
 
 def main(argv: list[str] | None = None) -> None:
-    run_from_yaml(prog="python -m rlib.PPO", argv=argv)
+    run_from_yaml(prog="python -m rlib.Curiosity", argv=argv)
 
 
 if __name__ == "__main__":

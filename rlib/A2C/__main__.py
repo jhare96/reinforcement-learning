@@ -1,11 +1,21 @@
-"""Run the A2C example: ``python -m rlib.A2C``.
+"""``python -m rlib.A2C`` -- YAML-driven A2C runner.
 
-Delegates to :mod:`examples.cartpole_a2c` so the demo and the library
-share a single source of truth.
+Pass a YAML config path; use ``--set key.path=value`` to override
+individual fields. See :mod:`rlib._cli` for the YAML schema.
+
+Example::
+
+    python -m rlib.A2C path/to/config.yaml --set trainer.config.total_steps=1_000_000
 """
 
-import runpy
-from pathlib import Path
+from __future__ import annotations
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-runpy.run_path(str(_REPO_ROOT / "examples" / "cartpole_a2c.py"), run_name="__main__")
+from rlib._cli import run_from_yaml
+
+
+def main(argv: list[str] | None = None) -> None:
+    run_from_yaml(prog="python -m rlib.A2C", argv=argv)
+
+
+if __name__ == "__main__":
+    main()
